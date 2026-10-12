@@ -18,7 +18,7 @@ from core.services import audit, money
 from . import analysis
 from .analysis import plain
 from .models import (ApprovedPrice, HistoricalRecord, HistoryAcceptance, ImportBatch, ReviewItem, ReviewNote, ReviewStatus,
-                     SourceProduct, UnclassifiedRow)
+                     SourceProduct, UnclassifiedRow, UnclassifiedRowDecision)
 from .parser import NUMERIC_FIELDS
 
 P, A, R = ReviewStatus.PENDING_REVIEW, ReviewStatus.APPROVED, ReviewStatus.REJECTED
@@ -352,24 +352,41 @@ def decide_item(*, user, item_id, resolution, note, evidence_reference="", appro
         raise _bad("Write a note explaining the decision.", "note_required")
     if resolution == "EXPLAINED" and not evidence_reference:
         raise _bad("Say where the evidence is (for example a delivery note number or a page in the stock book).", "evidence_required")
-    selling = [p for p in approved_prices or [] if p["price_type"] == ApprovedPrice.PriceType.SELLING and p["amount"] > 0]
-    if resolution == "PRICE_APPROVED" and not selling:
-        raise _bad("Enter the selling price being approved.", "price_required")
-    if resolution == "DATA_ENTRY_ERROR" and item.kind == "PRICE_ANOMALY" and not approved_prices:
-        raise _bad("Enter the correct value so the correction is on record. The original values stay as they are.", "price_required")
-
     product_ids = set(item.source_products.values_list("pk", flat=True))
+    approved_prices, identities = approved_prices or [], identities or []
+    priced = {p["source_product"].pk for p in approved_prices}
+    named = {e["source_product"].pk for e in identities if e.get("confirmed_name", "").strip()}
+    sized = {e["source_product"].pk for e in identities if e.get("confirmed_package_size", "").strip()}
+    with_unit = {e["source_product"].pk for e in identities if e.get("confirmed_unit", "").strip()}
+    selling = [p for p in approved_prices if p["price_type"] == ApprovedPrice.PriceType.SELLING and p["amount"] > 0]
+    # Mandatory confirmations (owner policy, 12 Oct 2026). An exception about identity or price cannot be closed
+    # on a note alone: the Owner must state what the product is and which price, of which type, applies from when.
+    if item.kind == "SAME_NAME_DIFFERENT_PRICE":
+        if product_ids - (named & sized):
+            raise _bad("For each line, confirm the product name and its package size.", "identity_required")
+        if product_ids - priced:
+            raise _bad("For each line, enter the approved price, say which price type it is, and the date it applies from.", "price_required")
+    if item.kind == "PRICE_ANOMALY" and not approved_prices:
+        raise _bad("Confirm which price type this figure is and the amount that applies, with the date it applies from. "
+                   "The original values stay exactly as recorded.", "price_required")
+    if resolution == "PRICE_APPROVED":
+        if not selling:
+            raise _bad("Enter the selling price being approved.", "price_required")
+        if product_ids - (named & (with_unit | sized)):
+            raise _bad("Confirm the product name and its unit or package size.", "identity_required")
+
     prices = _save_prices(item, product_ids, approved_prices, user, note)
     confirmed = []
-    for entry in identities or []:
+    for entry in identities:
         product = entry["source_product"]
         if product.pk not in product_ids:
             raise _bad("That product is not part of this exception.", "wrong_product")
         product.confirmed_name = entry.get("confirmed_name", "").strip()[:200]
         product.confirmed_package_size = entry.get("confirmed_package_size", "").strip()[:40]
-        product.save(update_fields=["confirmed_name", "confirmed_package_size"])
+        product.confirmed_unit = entry.get("confirmed_unit", "").strip()[:30] or product.confirmed_unit
+        product.save(update_fields=["confirmed_name", "confirmed_package_size", "confirmed_unit"])
         confirmed.append({"source_product": product.pk, "source_name": product.source_name, "confirmed_name": product.confirmed_name,
-                          "confirmed_package_size": product.confirmed_package_size})
+                          "confirmed_package_size": product.confirmed_package_size, "confirmed_unit": product.confirmed_unit})
     item.status, item.resolution, item.note, item.evidence_reference = allowed[resolution], resolution, note[:1000], evidence_reference[:300]
     item.decision = {"resolution_label": RESOLUTION_LABELS[resolution], "identities": confirmed,
                      "approved_prices": [{"source_product": p.source_product_id, "price_type": p.price_type, "amount": str(p.amount),
@@ -437,6 +454,8 @@ def decide_rows(*, user, row_ids, action, classification="", reason=""):
         row.status, row.classification = statuses[action], classification[:80] if action == "CLASSIFY" else row.classification
         row.reason, row.decided_by, row.decided_at = reason[:500], user, timezone.now()
         row.save()
+        # Every decision is kept, so the history of a row can always be read back.
+        UnclassifiedRowDecision.objects.create(row=row, status=row.status, classification=row.classification, reason=row.reason, decided_by=user)
         audit(user, "history.row_decided", row, reason=reason,
               summary=f"{row.worksheet} row {row.source_row}: {row.get_status_display()}" + (f" as '{classification}'" if action == "CLASSIFY" else ""),
               before=before, after={"status": row.status, "classification": row.classification})
@@ -570,3 +589,11 @@ def reference_quantity(product):
     if record is None:
         return None, ""
     return record.closing_qty, f"Excel closing stock on {record.business_date:%d %b %Y} (reference only)"
+
+
+PRICE_QUESTION_KINDS = ["SAME_NAME_DIFFERENT_PRICE", "PRICE_ANOMALY", "MISSING_PRICE"]
+
+
+def open_price_questions() -> int:
+    """Price and identity questions still waiting for the Owner. Go-live is blocked while any remain."""
+    return ReviewItem.objects.filter(status=P, kind__in=PRICE_QUESTION_KINDS).count()

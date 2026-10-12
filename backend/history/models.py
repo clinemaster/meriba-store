@@ -145,6 +145,20 @@ class UnclassifiedRow(models.Model):
         ]
 
 
+class UnclassifiedRowDecision(AppendOnlyModel):
+    """Decision history of an unlabelled row: every classification, exclusion or flag, by whom and when."""
+
+    row = models.ForeignKey(UnclassifiedRow, on_delete=models.PROTECT, related_name="decisions")
+    status = models.CharField(max_length=16, choices=UnclassifiedRow.Status.choices)
+    classification = models.CharField(max_length=80, blank=True)
+    reason = models.CharField(max_length=500, blank=True)
+    decided_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    decided_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["id"]
+
+
 class ReviewItem(models.Model):
     """An exception found in the historical data that a person must decide on."""
 

@@ -52,7 +52,7 @@ core_auditlog  (who, what, when, why, before, after)
 | `history_importbatch` | One committed import of one workbook file (name, fingerprint, who, summary) |
 | `history_sourceproduct` | Product Mapping Review: each product name as written, its recorded price history per price type, flags, proposal, the Owner's decision and the live product it maps to |
 | `history_historicalrecord` | Historical Daily Records: file, worksheet, row, date, original cell text, figures read, validation status, import status, incomplete mark |
-| `history_unclassifiedrow` | Unlabelled rows kept as written, with proposal, decision and reason |
+| `history_unclassifiedrow`, `history_unclassifiedrowdecision` | Unlabelled rows kept as written, with proposal, current decision and reason; plus the full decision history (status, classification, reason, reviewer, time), never edited |
 | `history_reviewitem`, `history_reviewnote` | Exceptions with their evidence and decision; explanations added by reviewers (never edited) |
 | `history_approvedprice` | Owner-approved price for a source product: price type, amount, effective date, approver |
 | `history_historyacceptance` | The Owner's explicit acceptance of the history as reconciled |

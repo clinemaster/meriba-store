@@ -47,7 +47,47 @@ class DryRunView(APIView):
 
     @extend_schema(request=None, responses={200: dict})
     def post(self, request):
-        return Response(services.describe_plan(_plan_from_upload(request)))
+        plan = _plan_from_upload(request)
+        if request.query_params.get("download") == "csv":
+            return _preview_report(plan, request.user)
+        return Response(services.describe_plan(plan))
+
+
+def _preview_report(plan, user):
+    """The exception report for a file that has NOT been imported, so it can be read before anything is committed."""
+    from .analysis import plain
+
+    summary = plan["summary"]
+    response = HttpResponse(content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = f'attachment; filename="meriba_import_preview_{local_today()}.csv"'
+    response.write("\ufeff")
+    writer = csv.writer(response)
+    writer.writerow(["MERIBA historical import PREVIEW - nothing has been saved", str(local_today())])
+    writer.writerow(["Status", "NOT IMPORTED and NOT RECONCILED. These figures are as written in the file and have not been reviewed."])
+    writer.writerow(["File", summary["file"]])
+    writer.writerow(["Sheets read", f"{summary['worksheets_read']} of {summary['worksheets']}", "Dates", f"{summary['date_from']} to {summary['date_to']}"])
+    writer.writerow(["Lines", summary["product_rows"], "New", summary["accepted_new"], "Already stored", summary["duplicates_skipped"],
+                     "Conflicting (would not be imported)", summary["conflicts_not_imported"]])
+    writer.writerow(["Unlabelled rows", summary["unlabelled_rows"], "Source products", summary["source_products"],
+                     "Total sales as written (unverified)", summary["workbook_total_sales"]])
+    writer.writerow([])
+    writer.writerow(["Section", "Type", "Severity", "New?", "What was found", "Lines affected", "Source details"])
+    for issue in plan["issues"]:
+        writer.writerow(["Exception", ReviewItem.Kind(issue["kind"]).label, "Material" if issue["severity"] == "MATERIAL" else "For information",
+                         "New" if issue["is_new"] else "Already listed", issue["title"], len(issue["record_keys"]), _flatten(plain(issue["details"]))])
+    for row in plan["rows"]:
+        if row["validation_status"] != "VALID":
+            writer.writerow(["Line problem", row["validation_status"].title(), "", "", row["name"], 1,
+                             f"{row['worksheet']} row {row['row']}: {' '.join(row['validation_messages'])}"])
+    by_row = {}
+    for other in plan["others"]:
+        by_row.setdefault(other["row"], []).append(other)
+    for number in sorted(by_row):
+        rows = by_row[number]
+        writer.writerow(["Unlabelled row", "Pending review", "", "", f"Row {number} in {len(rows)} sheet(s)", len(rows),
+                         "Proposed: " + " / ".join(sorted({r["proposal"] for r in rows})) + ". Never imported as a transaction."])
+    audit(user, "report.exported", summary=f"Exported the import preview report for '{summary['file']}'"[:255])
+    return response
 
 
 class BatchSerializer(serializers.ModelSerializer):
@@ -175,6 +215,7 @@ class IdentityInput(serializers.Serializer):
     source_product = serializers.PrimaryKeyRelatedField(queryset=SourceProduct.objects.all())
     confirmed_name = serializers.CharField(max_length=200)
     confirmed_package_size = serializers.CharField(max_length=40, required=False, allow_blank=True, default="")
+    confirmed_unit = serializers.CharField(max_length=30, required=False, allow_blank=True, default="")
 
 
 class DecideItemSerializer(serializers.Serializer):
@@ -231,6 +272,12 @@ class SourceProductSerializer(serializers.ModelSerializer):
     decided_by_name = serializers.CharField(source="decided_by.display_name", read_only=True, default="")
     open_exceptions = serializers.SerializerMethodField()
     approved_prices = serializers.SerializerMethodField()
+    price_unresolved = serializers.SerializerMethodField()
+
+    def get_price_unresolved(self, obj) -> bool:
+        """True while the sheets give no selling price and the Owner has not approved one."""
+        return "MISSING_PRICE" in obj.flags and not any(
+            p.price_type == ApprovedPrice.PriceType.SELLING and p.amount > 0 for p in obj.approved_prices.all())
 
     class Meta:
         model = SourceProduct
@@ -238,7 +285,7 @@ class SourceProductSerializer(serializers.ModelSerializer):
                   "selling_prices", "purchase_prices", "flags", "proposed_name", "proposed_unit", "proposed_package_size",
                   "review_status", "status_label", "confirmed_name", "confirmed_unit", "confirmed_package_size", "product",
                   "product_name", "product_is_active", "decision_note", "decided_by_name", "decided_at", "open_exceptions",
-                  "approved_prices"]
+                  "approved_prices", "price_unresolved"]
 
     def get_product_name(self, obj) -> str:
         return str(obj.product) if obj.product else ""
@@ -339,11 +386,16 @@ class RecordListView(generics.ListAPIView):
 class UnclassifiedRowSerializer(serializers.ModelSerializer):
     status_label = serializers.CharField(source="get_status_display", read_only=True)
     decided_by_name = serializers.CharField(source="decided_by.display_name", read_only=True, default="")
+    history = serializers.SerializerMethodField()
 
     class Meta:
         model = UnclassifiedRow
         fields = ["id", "business_date", "source_file", "worksheet", "source_row", "original", "proposed_classification",
-                  "proposal_basis", "status", "status_label", "classification", "reason", "decided_by_name", "decided_at"]
+                  "proposal_basis", "status", "status_label", "classification", "reason", "decided_by_name", "decided_at", "history"]
+
+    def get_history(self, obj) -> list:
+        return [{"status": d.status, "status_label": d.get_status_display(), "classification": d.classification, "reason": d.reason,
+                 "reviewer": d.decided_by.display_name, "decided_at": d.decided_at} for d in obj.decisions.all()]
 
 
 class UnclassifiedRowListView(generics.ListAPIView):
@@ -351,7 +403,7 @@ class UnclassifiedRowListView(generics.ListAPIView):
     serializer_class = UnclassifiedRowSerializer
 
     def get_queryset(self):
-        qs = UnclassifiedRow.objects.select_related("decided_by")
+        qs = UnclassifiedRow.objects.select_related("decided_by").prefetch_related("decisions__decided_by")
         params = self.request.query_params
         if params.get("status"):
             qs = qs.filter(status=params["status"])

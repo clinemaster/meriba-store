@@ -221,6 +221,20 @@ def test_henken_lines_are_kept_apart_until_the_owner_decides(owner, accountant, 
                         "create_product": True, "selling_price": "3500"}, format="json")
     assert blocked.status_code == 409 and blocked.data["code"] == "open_exceptions" and not Product.objects.exists()
 
+    # a note alone cannot close it: identity, package size, price type and effective date are required for each line
+    names_only = [{"source_product": h.pk, "confirmed_name": "Heineken"} for h in henkens]
+    both = [{"source_product": h.pk, "confirmed_name": "Heineken", "confirmed_package_size": "330ml"} for h in henkens]
+    one_price = [{"source_product": henkens[0].pk, "price_type": "SELLING", "amount": "3500", "effective_date": "2026-08-31"}]
+    assert decide(boss, conflict, "DIFFERENT_VARIANTS").data["code"] == "identity_required"
+    assert decide(boss, conflict, "DIFFERENT_VARIANTS", identities=names_only).data["code"] == "identity_required"
+    assert decide(boss, conflict, "DIFFERENT_VARIANTS", identities=both).data["code"] == "price_required"
+    assert decide(boss, conflict, "DIFFERENT_VARIANTS", identities=both, approved_prices=one_price).data["code"] == "price_required"
+    no_date = decide(boss, conflict, "DIFFERENT_VARIANTS", identities=both, approved_prices=[
+        {"source_product": h.pk, "price_type": "SELLING", "amount": "3500"} for h in henkens])
+    assert no_date.status_code == 400 and "effective_date" in str(no_date.data["errors"])
+    conflict.refresh_from_db()
+    assert conflict.status == "PENDING_REVIEW" and not ApprovedPrice.objects.exists()
+
     done = decide(boss, conflict, "DIFFERENT_VARIANTS", note="Row 4 is the 330ml bottle, row 5 the 500ml can", identities=[
         {"source_product": henkens[0].pk, "confirmed_name": "Heineken bottle", "confirmed_package_size": "330ml"},
         {"source_product": henkens[1].pk, "confirmed_name": "Heineken can", "confirmed_package_size": "500ml"}], approved_prices=[
@@ -267,7 +281,12 @@ def test_price_anomaly_is_flagged_and_never_corrected_automatically(owner, impor
     reopened = boss.post(f"/api/v1/history/review-items/{anomaly.pk}/reopen/", {"reason": "Supplier says the price really did change"}, format="json")
     assert reopened.data["status"] == "PENDING_REVIEW"
     assert AuditLog.objects.get(action="history.exception_reopened").before["resolution"] == "DATA_ENTRY_ERROR"
-    assert decide(boss, anomaly, "CONFIRMED_CORRECT", note="Promotional cost from the supplier, confirmed").status_code == 200
+    # even "the recorded value is correct" needs the price type and applicable amount confirmed
+    assert decide(boss, anomaly, "CONFIRMED_CORRECT", note="Promotional cost from the supplier, confirmed").data["code"] == "price_required"
+    confirmed = decide(boss, anomaly, "CONFIRMED_CORRECT", note="Promotional cost from the supplier, confirmed", approved_prices=[
+        {"source_product": magic.pk, "price_type": "PURCHASE_COST", "amount": "1290", "effective_date": "2026-09-12"}])
+    assert confirmed.status_code == 200 and confirmed.data["status"] == "APPROVED"
+    assert list(ApprovedPrice.objects.order_by("id").values_list("price_type", "amount")) == [("PURCHASE_COST", 9000), ("PURCHASE_COST", 1290)]  # history kept
 
 
 # --- 5. mkwawa: no price -----------------------------------------------------------------------
@@ -294,9 +313,15 @@ def test_product_without_a_price_is_kept_but_cannot_go_on_sale(owner, cashier, s
     assert not StockBalance.objects.filter(product=product).exists()  # no stock came from the Excel either
 
     assert decide(boss, missing, "PRICE_APPROVED").data["code"] == "price_required"
-    priced = decide(boss, missing, "PRICE_APPROVED", note="Owner confirmed the shelf price for a carton", approved_prices=[
-        {"source_product": mkwawa.pk, "price_type": "SELLING", "amount": "6000", "effective_date": "2026-10-12"}])
-    assert priced.status_code == 200
+    price = [{"source_product": mkwawa.pk, "price_type": "SELLING", "amount": "6000", "effective_date": "2026-10-12"}]
+    listing = lambda: boss.get("/api/v1/history/source-products/?search=mkwawa").data["results"][0]
+    assert listing()["price_unresolved"] is True
+    assert decide(boss, missing, "PRICE_APPROVED", approved_prices=price).data["code"] == "identity_required"
+    assert decide(boss, missing, "PRICE_APPROVED", approved_prices=price,
+                  identities=[{"source_product": mkwawa.pk, "confirmed_name": "Mkwawa water"}]).data["code"] == "identity_required"
+    priced = decide(boss, missing, "PRICE_APPROVED", note="Owner confirmed the shelf price for a carton", approved_prices=price,
+                    identities=[{"source_product": mkwawa.pk, "confirmed_name": "Mkwawa water", "confirmed_unit": "Carton"}])
+    assert priced.status_code == 200 and listing()["price_unresolved"] is False
     assert boss.patch(f"/api/v1/products/{product.pk}/", {"is_active": True, "selling_price": "6000"}, format="json").status_code == 200
 
 
@@ -345,6 +370,11 @@ def test_unlabelled_rows_are_preserved_and_only_ever_labelled(owner, accountant,
     statuses = dict(UnclassifiedRow.objects.values_list("pk", "status"))
     assert statuses[totals[1]] == "APPROVED" and statuses[unknown[0]] == "REJECTED" and statuses[unknown[3]] == "FLAGGED" and statuses[totals[0]] == "FLAGGED"
     assert AuditLog.objects.filter(action="history.row_decided").count() == 9
+    shown = next(r for r in office.get("/api/v1/history/unclassified-rows/?row=11").data["results"] if r["id"] == totals[0])
+    assert (shown["worksheet"], shown["source_row"], shown["decided_by_name"]) == ("31.08.2026", 11, "Accountant")
+    assert [(h["status_label"], h["classification"], h["reason"], h["reviewer"]) for h in shown["history"]] == [
+        ("Classified", "Column totals", "", "Accountant"), ("Needs investigation", "Column totals", "Does not match on closer look", "Accountant")]
+    assert all(h["decided_at"] for h in shown["history"])
     # whatever the label, the rows never became products, records or transactions
     assert HistoricalRecord.objects.count() == 24 and SourceProduct.objects.count() == 6 and not Sale.objects.exists()
     assert UnclassifiedRow.objects.get(pk=unknown[0]).original == [{"column": "J", "value": "632700"}]
@@ -355,9 +385,17 @@ def test_unlabelled_rows_are_preserved_and_only_ever_labelled(owner, accountant,
 def resolve_everything(owner):
     boss = client_for(owner)
     decide(boss, item("MISSING_DATES"), "ACCEPTED_INCOMPLETE")
-    decide(boss, item("SAME_NAME_DIFFERENT_PRICE"), "SAME_PRODUCT_PRICE_CHANGE")
-    decide(boss, item("PRICE_ANOMALY"), "CONFIRMED_CORRECT")
-    decide(boss, item("MISSING_PRICE"), "NOT_FOR_SALE")
+    henkens = list(SourceProduct.objects.filter(normalised_name="henken"))
+    magic = SourceProduct.objects.get(serial_number=4)
+    answers = [
+        decide(boss, item("SAME_NAME_DIFFERENT_PRICE"), "SAME_PRODUCT_PRICE_CHANGE",
+               identities=[{"source_product": h.pk, "confirmed_name": "Heineken", "confirmed_package_size": "330ml"} for h in henkens],
+               approved_prices=[{"source_product": h.pk, "price_type": "SELLING", "amount": "4000", "effective_date": "2026-08-31"} for h in henkens]),
+        decide(boss, item("PRICE_ANOMALY"), "CONFIRMED_CORRECT", approved_prices=[
+            {"source_product": magic.pk, "price_type": "PURCHASE_COST", "amount": "1290", "effective_date": "2026-09-12"}]),
+        decide(boss, item("MISSING_PRICE"), "NOT_FOR_SALE"),
+    ]
+    assert [a.status_code for a in answers] == [200, 200, 200], [a.data for a in answers]
     for sp in SourceProduct.objects.all():
         boss.post(f"/api/v1/history/source-products/{sp.pk}/decide/", {"approve": False, "note": "History only"}, format="json")
     boss.post("/api/v1/history/unclassified-rows/decide/", {"ids": list(UnclassifiedRow.objects.values_list("pk", flat=True)),
@@ -518,3 +556,69 @@ def test_real_workbook_dry_run_then_import(owner, shop):
     assert HistoricalRecord.objects.count() == 3503
     print("\nReal workbook exceptions:", sorted(ReviewItem.objects.values_list("title", flat=True)))
     print("Unlabelled row proposals by row:", sorted(set(UnclassifiedRow.objects.values_list("source_row", "proposed_classification"))))
+
+
+# --- Controls confirmed as policy on 12 Oct 2026 ---------------------------------------------------
+
+def test_exception_report_is_available_from_the_dry_run_before_anything_is_committed(owner, accountant, cashier):
+    url = "/api/v1/history/imports/dry-run/?download=csv"
+    assert upload(client_for(cashier), primary(), url).status_code == 403
+    response = upload(client_for(accountant), primary(), url)
+    assert response.status_code == 200 and response["Content-Type"].startswith("text/csv") and "attachment" in response["Content-Disposition"]
+    text = response.content.decode("utf-8-sig")
+    assert text.startswith("MERIBA historical import PREVIEW - nothing has been saved") and "NOT RECONCILED" in text
+    assert "Same name, different prices" in text and "Missing: 2026-09-01" in text and "Unusual price change" in text
+    assert "mkwawa has no sales price" in text and "Row 12 in 4 sheet(s)" in text and "Never imported as a transaction" in text
+    for model in (ImportBatch, HistoricalRecord, SourceProduct, ReviewItem, UnclassifiedRow):
+        assert not model.objects.exists(), model.__name__
+
+
+def test_go_live_waits_for_price_questions_but_not_for_the_rest_of_the_history_review(owner, shop, make_user, make_product, imported):
+    """Development and review of the old records can go on in parallel; only identity and price questions hold up go-live."""
+    shop.cfg.went_live_at = None
+    shop.cfg.opening_stock_confirmed_at = None
+    shop.cfg.save()
+    boss = client_for(owner)
+    make_user("till1", "CASHIER")
+    product = make_product("Konyagi ndogo", "4500")
+    sheet = boss.post("/api/v1/stock/opening-counts/", {"request_key": str(uuid.uuid4()), "count_date": "2026-10-31", "counted_by_name": "Asha",
+                      "lines": [{"product": product.pk, "quantity": "40"}]}, format="json")
+    boss.post(f"/api/v1/stock/opening-counts/{sheet.data['id']}/review/", {"approve": True}, format="json")
+    go = {"opening_cumulative_sales": "0", "as_of_date": "2026-10-31", "confirm": True, "confirm_new_baseline": True}
+
+    step = lambda: next(s for s in boss.get("/api/v1/setup/status/").data["steps"] if s["key"] == "price_questions")
+    assert step()["done"] is False and "3 question(s) waiting for the Owner" in step()["detail"]
+    blocked = boss.post("/api/v1/setup/go-live/", go, format="json")
+    assert blocked.status_code == 409 and blocked.data["code"] == "setup_incomplete"
+    assert any("price questions" in title for title in blocked.data["details"])
+
+    henkens = list(SourceProduct.objects.filter(normalised_name="henken"))
+    magic = SourceProduct.objects.get(serial_number=4)
+    decide(boss, item("SAME_NAME_DIFFERENT_PRICE"), "DIFFERENT_VARIANTS",
+           identities=[{"source_product": h.pk, "confirmed_name": "Heineken", "confirmed_package_size": s} for h, s in zip(henkens, ("330ml", "500ml"))],
+           approved_prices=[{"source_product": h.pk, "price_type": "SELLING", "amount": a, "effective_date": "2026-08-31"} for h, a in zip(henkens, ("3500", "4000"))])
+    decide(boss, item("PRICE_ANOMALY"), "CONFIRMED_CORRECT", approved_prices=[
+        {"source_product": magic.pk, "price_type": "PURCHASE_COST", "amount": "1290", "effective_date": "2026-09-12"}])
+    decide(boss, item("MISSING_PRICE"), "NOT_FOR_SALE")
+    assert step()["done"] is True
+
+    # missing dates, product mappings and unlabelled rows are still open, and the history is still not reconciled
+    board = boss.get("/api/v1/history/dashboard/").data
+    assert board["reconciled"] is False and board["blockers"]["exceptions"] == 1 and board["blockers"]["unlabelled_rows"] == 8
+    live = boss.post("/api/v1/setup/go-live/", go, format="json")
+    assert live.status_code == 200 and live.data["is_live"] is True
+    assert boss.get("/api/v1/history/dashboard/").data["statement"].startswith("NOT RECONCILED")  # going live claims nothing about the past
+    assert stock_of(product) == 40 and InventoryMovement.objects.count() == 1
+
+
+def test_statuses_are_distinct_and_named_as_agreed(owner, imported):
+    from history.models import ReviewStatus
+
+    assert [label for _, label in ReviewStatus.choices] == ["Pending review", "Approved", "Rejected", "Imported"]
+    boss = client_for(owner)
+    decide(boss, item("MISSING_DATES"), "REJECTED_RECORDS")
+    statuses = set(HistoricalRecord.objects.values_list("import_status", flat=True))
+    assert statuses == {"IMPORTED", "PENDING_REVIEW", "REJECTED"}  # clean lines, lines under open exceptions, rejected lines
+    labels = {r["import_status_label"] for r in boss.get("/api/v1/history/records/?page_size=100").data["results"]}
+    assert labels == {"Imported", "Pending review", "Rejected"}
+    assert ReviewItem.objects.get(kind="MISSING_DATES").status == "REJECTED"

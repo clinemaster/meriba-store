@@ -35,11 +35,12 @@ type SourceProduct = {
   id: number; serial_number: number; source_name: string; pack_text: string; description_text: string; first_seen: string; last_seen: string;
   record_count: number; selling_prices: PriceRun[]; purchase_prices: PriceRun[]; flags: string[]; proposed_name: string; proposed_unit: string;
   proposed_package_size: string; review_status: string; status_label: string; product: number | null; product_name: string;
-  product_is_active: boolean | null; decision_note: string; open_exceptions: { id: number; title: string }[];
+  product_is_active: boolean | null; decision_note: string; open_exceptions: { id: number; title: string }[]; price_unresolved: boolean;
 };
 type Row = {
   id: number; business_date: string; worksheet: string; source_row: number; original: { column: string; value: string }[];
   proposed_classification: string; proposal_basis: string; status: string; status_label: string; classification: string; reason: string;
+  decided_by_name: string; history: { status_label: string; classification: string; reason: string; reviewer: string; decided_at: string }[];
 };
 type HistRecord = {
   id: number; business_date: string; worksheet: string; source_row: number; source_name: string; opening_qty: string | null;
@@ -64,6 +65,28 @@ function Overview({ board, reload, isOwner }: { board: Dashboard; reload: () => 
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+
+  async function downloadPreviewReport() {
+    if (!file || busy) return;
+    setBusy(true);
+    setProblem(null);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const token = document.cookie.split("; ").find((c) => c.startsWith("csrftoken="))?.slice(10) ?? "";
+      const res = await fetch("/api/v1/history/imports/dry-run/?download=csv", { method: "POST", body: form, credentials: "same-origin", headers: { "X-CSRFToken": decodeURIComponent(token) } });
+      if (!res.ok) throw new Error();
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(await res.blob());
+      link.download = "meriba_import_preview.csv";
+      link.click();
+      URL.revokeObjectURL(link.href);
+    } catch {
+      setProblem("The preview report could not be downloaded. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function send(commit: boolean) {
     if (!file || busy) return;
@@ -142,6 +165,7 @@ function Overview({ board, reload, isOwner }: { board: Dashboard; reload: () => 
         {preview && s && (
           <div className="space-y-4 border-t border-slate-200 pt-4">
             <Alert kind="info">{preview.statement}</Alert>
+            <button className="btn-secondary" disabled={busy} onClick={downloadPreviewReport}>Download this preview as an exception report (CSV)</button>
             {s.already_imported_file && <Alert kind="warning">This exact file has been imported before. Importing it again will add nothing.</Alert>}
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <Stat label="Sheets read" value={`${s.worksheets_read} of ${s.worksheets}`} note={`${formatDate(s.date_from)} to ${formatDate(s.date_to)}`} />
@@ -187,7 +211,7 @@ function Exceptions({ isOwner, onChange }: { isOwner: boolean; onChange: () => v
   const [resolution, setResolution] = useState("");
   const [note, setNote] = useState("");
   const [evidence, setEvidence] = useState("");
-  const [extra, setExtra] = useState<Record<number, { name: string; size: string; type: string; amount: string; date: string }>>({});
+  const [extra, setExtra] = useState<Record<number, { name: string; size: string; unit: string; type: string; amount: string; date: string }>>({});
   const [newNote, setNewNote] = useState({ text: "", evidence: "", source: "" });
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -216,12 +240,17 @@ function Exceptions({ isOwner, onChange }: { isOwner: boolean; onChange: () => v
     const entries = Object.entries(extra);
     act(() => api<Item>(`/history/review-items/${open.id}/decide/`, { method: "POST", body: {
       resolution, note, evidence_reference: evidence,
-      identities: entries.filter(([, v]) => v.name.trim()).map(([id, v]) => ({ source_product: Number(id), confirmed_name: v.name, confirmed_package_size: v.size })),
+      identities: entries.filter(([, v]) => v.name.trim()).map(([id, v]) => ({ source_product: Number(id), confirmed_name: v.name, confirmed_package_size: v.size, confirmed_unit: v.unit })),
       approved_prices: entries.filter(([, v]) => v.amount.trim() && v.date).map(([id, v]) => ({ source_product: Number(id), price_type: v.type || "SELLING", amount: v.amount.replace(/,/g, ""), effective_date: v.date })),
     } }), true);
   }
-  const setFor = (id: number, patch: Partial<{ name: string; size: string; type: string; amount: string; date: string }>) =>
-    setExtra((x) => ({ ...x, [id]: { ...(x[id] ?? { name: "", size: "", type: "SELLING", amount: "", date: "" }), ...patch } }));
+  const setFor = (id: number, patch: Partial<{ name: string; size: string; unit: string; type: string; amount: string; date: string }>) =>
+    setExtra((x) => ({ ...x, [id]: { ...(x[id] ?? { name: "", size: "", unit: "", type: "SELLING", amount: "", date: "" }), ...patch } }));
+  const REQUIRED: Record<string, string> = {
+    SAME_NAME_DIFFERENT_PRICE: "Required for each line before this can be closed: the confirmed product name, its package size, the approved price, which price type it is, and the date it applies from.",
+    PRICE_ANOMALY: "Required before this can be closed: which price type this figure is, the amount that applies, and the date it applies from. The recorded values are never changed.",
+    MISSING_PRICE: "To approve a selling price you must also confirm the product name and its unit or package size. Until a selling price is approved the product cannot be sold.",
+  };
   const d = open?.details ?? {};
   const mayDecide = open && open.status === "PENDING_REVIEW" && (isOwner || !open.owner_only);
 
@@ -311,17 +340,19 @@ function Exceptions({ isOwner, onChange }: { isOwner: boolean; onChange: () => v
                   <label key={r.code} className="flex items-center gap-2 py-1"><input type="radio" name="resolution" className="h-5 w-5" checked={resolution === r.code} onChange={() => setResolution(r.code)} /> {r.label}</label>
                 ))}
               </fieldset>
+              {REQUIRED[open.kind] && <Alert kind="info">{REQUIRED[open.kind]}</Alert>}
               {open.owner_only && open.source_products.map((sp) => (
                 <div key={sp.id} className="rounded-lg border border-slate-200 p-3">
                   <div className="mb-2 font-semibold">S/N {sp.serial_number} · {sp.source_name}</div>
-                  <div className="grid gap-2 sm:grid-cols-5">
+                  <div className="grid gap-2 sm:grid-cols-6">
                     <input aria-label={`Confirmed name for line ${sp.serial_number}`} className="input sm:col-span-2" placeholder="Confirmed product name" value={extra[sp.id]?.name ?? ""} onChange={(e) => setFor(sp.id, { name: e.target.value })} />
                     <input aria-label={`Package size for line ${sp.serial_number}`} className="input" placeholder="Size, e.g. 330ml" value={extra[sp.id]?.size ?? ""} onChange={(e) => setFor(sp.id, { size: e.target.value })} />
+                    <input aria-label={`Unit for line ${sp.serial_number}`} className="input" placeholder="Unit, e.g. Bottle" value={extra[sp.id]?.unit ?? ""} onChange={(e) => setFor(sp.id, { unit: e.target.value })} />
                     <select aria-label={`Price type for line ${sp.serial_number}`} className="input" value={extra[sp.id]?.type ?? "SELLING"} onChange={(e) => setFor(sp.id, { type: e.target.value })}>
                       <option value="SELLING">Selling price</option><option value="PURCHASE_COST">Purchase cost</option><option value="OTHER">Other</option>
                     </select>
                     <input aria-label={`Approved amount for line ${sp.serial_number}`} className="input" inputMode="numeric" placeholder="Approved amount" value={extra[sp.id]?.amount ?? ""} onChange={(e) => setFor(sp.id, { amount: e.target.value })} />
-                    <label className="text-sm sm:col-span-5">Effective from <input type="date" className="input mt-1 max-w-xs" value={extra[sp.id]?.date ?? ""} onChange={(e) => setFor(sp.id, { date: e.target.value })} /></label>
+                    <label className="text-sm sm:col-span-6">Applies from (effective date) <input type="date" className="input mt-1 max-w-xs" value={extra[sp.id]?.date ?? ""} onChange={(e) => setFor(sp.id, { date: e.target.value })} /></label>
                   </div>
                 </div>
               ))}
@@ -395,7 +426,7 @@ function Mapping({ isOwner, onChange }: { isOwner: boolean; onChange: () => void
                 <td>{sp.serial_number}</td>
                 <td className="font-semibold">{sp.source_name}<span className="block text-sm font-normal text-slate-600">{formatDate(sp.first_seen)} to {formatDate(sp.last_seen)} · {sp.record_count} sheets</span></td>
                 <td>{[sp.pack_text, sp.description_text].filter(Boolean).join(" · ") || "—"}</td>
-                <td>{prices(sp.selling_prices)}</td>
+                <td>{sp.price_unresolved ? <span className="font-semibold text-red-800">⚠ Price unresolved</span> : prices(sp.selling_prices)}</td>
                 <td>{prices(sp.purchase_prices)}</td>
                 <td>{[...sp.flags.map((f) => FLAG_LABEL[f] ?? f), ...sp.open_exceptions.map((e) => `Open: ${e.title}`)].join("; ") || "—"}</td>
                 <td><StatusBadge status={sp.review_status === "PENDING_REVIEW" ? "PENDING" : sp.review_status} label={sp.status_label} />
@@ -492,7 +523,14 @@ function UnlabelledRows({ onChange }: { onChange: () => void }) {
               <span>{statuses.map((s) => <StatusBadge key={s} status={s === "Classified" ? "APPROVED" : s === "Excluded" ? "VOIDED" : "PENDING"} label={s} />)}</span>
             </div>
             <p className="text-slate-700"><strong>Proposed:</strong> {proposals.join(" / ")}. <span className="text-slate-600">{rows[0].proposal_basis}</span></p>
-            {rows[0].classification && <p><strong>Decided as:</strong> {rows[0].classification}{rows[0].reason && ` · ${rows[0].reason}`}</p>}
+            {rows[0].classification && <p><strong>Decided as:</strong> {rows[0].classification}{rows[0].reason && ` · ${rows[0].reason}`}{rows[0].decided_by_name && ` · reviewer: ${rows[0].decided_by_name}`}</p>}
+            {rows[0].history.length > 0 && (
+              <details className="mt-1"><summary className="cursor-pointer font-semibold">Decision history ({rows[0].history.length})</summary>
+                <ul className="ml-5 list-disc text-sm">
+                  {rows[0].history.map((h, i) => <li key={i}>{formatDate(h.decided_at)} · {h.reviewer} · {h.status_label}{h.classification && ` as “${h.classification}”`}{h.reason && ` · ${h.reason}`}</li>)}
+                </ul>
+              </details>
+            )}
             <details className="mt-2"><summary className="cursor-pointer font-semibold">Show the original values in each sheet</summary>
               <div className="max-h-56 overflow-auto"><table className="table"><thead><tr><th>Sheet</th><th>Original cells</th><th>Proposed</th><th>Status</th></tr></thead>
                 <tbody>{rows.map((r) => <tr key={r.id}><td>{r.worksheet} row {r.source_row}</td><td className="font-mono">{r.original.map((c) => `${c.column}: ${c.value}`).join("   ")}</td><td>{r.proposed_classification}</td><td>{r.status_label}</td></tr>)}</tbody></table></div>

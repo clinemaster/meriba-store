@@ -159,7 +159,8 @@ except through recorded corrections.
 ---
 
 ### The old Excel sheets — **Excel History**
-1. Take a backup, then **Step 1 · Check the file** and read the preview. Tick the two boxes and press **Step 2 · Import**.
+1. Take a backup, then **Step 1 · Check the file** and read the preview. You can **download the preview as an
+   exception report** before deciding. Tick the two boxes and press **Step 2 · Import**.
    The lines are stored as historical reference only. Importing the same file again adds nothing.
 2. **Exceptions** that only you can decide:
    - *Same name, different prices* (for example two "Henken" lines): choose whether it is the same product with a price
@@ -171,6 +172,9 @@ except through recorded corrections.
 3. **Product Mapping Review**: for each name found in the sheets, confirm the name and the unit it is sold in, then
    create a product (with an approved selling price) or link it to one that exists. A product with no approved
    selling price is created switched off and cannot be sold. Mapping never gives a product stock.
+   These questions cannot be closed with a note alone. The screen tells you what must be filled in: the confirmed
+   name, the package size, the approved price, which type of price it is, and the date it applies from.
+   **You cannot go live while one of these questions is open.** The rest of the review can wait.
 4. When nothing is waiting, **Accept as reconciled** with a note. Until then every screen says **NOT RECONCILED**.
    You can **reopen** any decision with a reason.
 

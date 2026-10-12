@@ -128,7 +128,11 @@ Recording ✅ (FR-AUD-01..04) and API ✅. Audit history screen ⬜.
 | FR-IMP-10 Backup before import; transactions | 🟡 | Import runs in one transaction. The Owner must confirm a backup was taken; the system cannot verify it |
 | FR-IMP-11 No reset, delete or overwrite | ✅ | Stored records are never overwritten; a differing copy is flagged instead |
 | FR-IMP-12 Verify imported counts against workbook totals | ✅ | Stored count checked against lines read; total sales reported from the file |
-| Review workflow: statuses, permissions, explanations with evidence, approved prices by type, reopen, exception report, acceptance | ✅ | Owner decisions H2–H8 |
+| Review workflow: statuses, permissions, explanations with evidence, approved prices by type, reopen, exception report, acceptance | ✅ | Owner policy H2–H8 |
+| Mandatory confirmations: identity, package size, price type and effective date before a same-name or price question can be closed | ✅ | Confirmed policy, 12 Oct 2026 |
+| Exception report available from the dry run, before committing | ✅ | |
+| Unlabelled rows: reviewer and full decision history | ✅ | |
+| Go-live blocked while a product identity or price question is open; not blocked by the rest of the review | ✅ | Interpretation I8 in OPEN_DECISIONS |
 The October workbook has been run through a dry run (3,503 lines, five material exceptions) but **not imported into the real database**: that is the Owner's step. Per decision D7 the history is kept separate from the live opening balance.
 
 ## Cumulative monetary sales balance (SRS clarification, master prompt §7)

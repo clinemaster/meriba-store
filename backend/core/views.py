@@ -74,6 +74,10 @@ def setup_steps(branch) -> list[dict]:
 
     products = Product.objects.filter(is_active=True)
     stock = opening_stock_state(branch)
+    # Reviewing the old Excel records does not hold up go-live, except for questions about what a product is or costs.
+    from history.services import open_price_questions
+
+    open_prices = open_price_questions()
     stock_detail = ("A count sheet is waiting for the Owner's review" if stock["pending"] else
                     f"{stock['uncounted']} product(s) on sale have no approved count yet" if stock["uncounted"] else "Approved")
     return [
@@ -87,6 +91,9 @@ def setup_steps(branch) -> list[dict]:
          "detail": ", ".join(PaymentMethod.objects.filter(is_active=True).values_list("name", flat=True))},
         {"key": "opening_stock", "title": "Count the stock physically and have the Owner approve the count",
          "done": stock["complete"], "detail": stock_detail},
+        {"key": "price_questions", "title": "Decide the open product and price questions from the Excel review",
+         "done": open_prices == 0,
+         "detail": f"{open_prices} question(s) waiting for the Owner" if open_prices else "None open"},
         {"key": "cashier", "title": "Create at least one cashier account",
          "done": User.objects.filter(role=User.Role.CASHIER, is_active=True).exists(), "detail": ""},
     ]

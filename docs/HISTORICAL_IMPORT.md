@@ -1,7 +1,10 @@
 # Historical Excel import and review
 
-How the old daily Excel sheets are brought in, checked and reviewed. Decided by the business owner on
-12 Oct 2026 (decisions H1–H8 in [OPEN_DECISIONS.md](OPEN_DECISIONS.md)).
+How the old daily Excel sheets are brought in, checked and reviewed. Confirmed by the business owner as
+implementation policy on 12 Oct 2026 (decisions H1–H8 in [OPEN_DECISIONS.md](OPEN_DECISIONS.md)).
+
+**Standing rule:** where a source record is ambiguous it is preserved and clarification is requested. No value is
+invented and no original data is silently changed.
 
 ## The principle
 
@@ -65,10 +68,18 @@ cell text, the figures read from it, validation status (Valid / Warning / Error)
 What the importer never does: fill in a missing day, estimate or interpolate a quantity, assume an unexplained
 difference was a sale, merge two names, prefer one price over another, correct a value, or invent a price.
 
-With every decision the Owner can record the **confirmed product identity**, an **approved price** with its
-**price type** (selling, purchase cost or other) and **effective date**. These are stored separately from the
-original values, which never change. Every decision needs a note; "Explained with evidence" needs a reference to
-where the evidence is.
+### What must be confirmed before an exception can be closed
+
+| Exception | Mandatory before it is marked resolved |
+|---|---|
+| Same name, different prices | For **each** line: confirmed product name, package size, approved price, **price type**, **effective date** |
+| Unusual price change | The **price type** the figure represents, the amount that applies, and its effective date. This applies even when the recorded value is confirmed as correct |
+| Missing price → "Selling price approved" | Confirmed product name, its **unit or package size**, and the approved selling price with effective date |
+| Explained with evidence | A reference to where the evidence is |
+| Any decision | A note |
+
+Confirmed identities and approved prices are stored separately from the original values, which never change.
+A decision that is reopened and decided again leaves both sets of approved prices on record.
 
 ## Statuses
 
@@ -77,7 +88,7 @@ where the evidence is.
 | Historical record | **Imported** (stored, no open exception) · **Pending review** (an exception touching it is open) · **Approved** (those exceptions are decided) · **Rejected** (a reviewer rejected it) | Changes automatically when an exception is decided or reopened. A separate **Incomplete** mark stays on while an exception is open, rejected, or was accepted without explanation |
 | Exception | Pending review → Approved or Rejected | A decision can be reopened by the Owner, with a reason. The earlier decision stays in the audit trail |
 | Source product (mapping) | Pending review → Approved (mapped to a live product) or Rejected (history only) | Owner only. Blocked while a price question about that product is open |
-| Unlabelled row | Pending review → Classified · Excluded · Needs investigation | Owner or Accountant. Excluding, and changing an earlier decision, need a reason |
+| Unlabelled row | Pending review → Classified (approved) · Excluded (rejected) · Needs investigation | Owner or Accountant. Excluding, and changing an earlier decision, need a reason. Every decision is kept in the row's decision history with reviewer and time |
 
 ## Permissions
 
@@ -97,6 +108,7 @@ where the evidence is.
 1. **Take a database backup** ([BACKUP_AND_RESTORE.md](BACKUP_AND_RESTORE.md)).
 2. Sign in as Owner → **Excel History** → choose the workbook → **Step 1 · Check the file**. Nothing is saved.
    Read the preview: sheets read, new lines, lines already stored, conflicts, problems, exceptions.
+   **Download this preview as an exception report** to read or share it before deciding to import.
 3. Tick the two boxes (backup taken, preview read) → **Step 2 · Import as historical reference**.
 4. Work through the tabs: **Exceptions**, **Product Mapping Review**, **Unlabelled rows**.
 5. Download the **exception report** at any time for discussion.
@@ -120,6 +132,16 @@ workbook is treated as a supplementary source:
 The Owner confirms the name and the unit it is counted and sold in (required; never guessed), and either picks an
 existing product or creates a new one with an approved selling price. Without an approved selling price the product
 is created **switched off** and cannot be sold or activated. Mapping never gives a product stock.
+
+## Go-live and the history review
+
+Reviewing the old records and building or testing the application go on side by side. Go-live does **not** wait
+for missing dates, product mappings or unlabelled rows to be settled, and going live says nothing about the past:
+the history stays NOT RECONCILED until the Owner accepts it.
+
+Go-live **is** refused while any question about what a product is or what it costs is still open, alongside the
+other requirements: products with selling prices, payment methods, an Owner-approved physical count of every
+product on sale, a cashier account, and the Owner's approval of the opening balance.
 
 ## Opening stock (separate from all of the above)
 
