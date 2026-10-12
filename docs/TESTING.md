@@ -18,12 +18,14 @@ Tests use their own database (`test_meriba_lsms`), created automatically. They n
 cd C:\Projects\meriba-lsms\backend;  .\.venv\Scripts\python -m pytest
 cd C:\Projects\meriba-lsms\frontend; npm test; npm run typecheck; npm run build
 
-# Browser tests: creates a throwaway database, starts both programs, runs the tests, removes everything again.
-# Stop the shop system first if it is running (it needs ports 3000 and 8000). First time only: npx playwright install chromium
+# Browser tests: creates a throwaway database, starts test copies of both programs, runs the tests, removes everything again.
+# Safe to run while the shop system is running: it uses its own ports (3100, 8100), database and build folder.
+# First time only: npx playwright install chromium
 cd C:\Projects\meriba-lsms; powershell -ExecutionPolicy Bypass -File scripts\e2e.ps1
+# Add  -Workbook "C:\full\path\to\the workbook.xlsx"  to include the test that previews the real Excel file.
 ```
 
-## Actual results — 12 Oct 2026 (fifth round)
+## Actual results — 12 Oct 2026 (sixth round)
 
 | Suite | Result |
 |---|---|
@@ -31,7 +33,7 @@ cd C:\Projects\meriba-lsms; powershell -ExecutionPolicy Bypass -File scripts\e2e
 | Frontend `vitest` | **37 passed**, 0 failed |
 | Frontend type check (`tsc --noEmit`) | no errors |
 | Frontend production build (`next build`) | succeeded, 19 screens |
-| **Browser tests (Playwright, Chromium)** | **7 passed**, 0 failed (about 1 minute). First time the screens have been exercised in a real browser |
+| **Browser tests (Playwright, Chromium)** | **12 passed**, 0 failed (about 40 seconds), on four consecutive runs. Backend and unit suites were last run in the fifth round; this round changed only screens and tests |
 | Earlier scripted run through the website address (no browser) | 44 of 44 checks in the third round. Superseded by the browser tests |
 | Real October workbook through the importer | dry run and import both tested: 3,503 lines stored, five exceptions raised, live tables untouched, second import adds nothing |
 | Backup → restore on a throwaway database (first round) | restored copy matched the original |
@@ -59,9 +61,11 @@ closes: expected cash 117,000, balanced; day net sales 18,000. No sale after clo
 stock report shows received 12, sold 5, returned 1, closing 56, ledger check 0; CSV downloads. Owner corrects the
 closed day by −500: closing becomes 17,500 with the original 18,000 kept. Audit trail holds every key event.
 
-### Browser tests (`frontend/e2e/shop.spec.ts`)
+### Browser tests (`frontend/e2e/`)
 
-One trading day through the real screens, in order, sharing one throwaway database:
+Two files run in order and share one throwaway database.
+
+**`01-trading-day.spec.ts`** — one trading day through the real screens:
 
 1. A wrong password is refused in plain words; a visitor who is not signed in is sent to the sign-in page.
 2. **Owner sets up and goes live:** adds two products (typing key by key), is refused a product on sale without a
@@ -69,10 +73,13 @@ One trading day through the real screens, in order, sharing one throwaway databa
    disabled until TZS 0 is confirmed as a new baseline.
 3. **Cashier:** is made to choose their own password; sees only Home, New Sale, Today's Sales, Close Day; typing the
    address of the Users page shows "not available"; starts the day with a float; makes a cash sale with change and a
-   sale split between cash and mobile money (blocked while money is still owed); sees stock go down; sees both sales
-   and no cancel or refund buttons.
-4. **Owner during the day:** receives a delivery, refunds one item in cash, records an expense paid from the
-   cashier's drawer; stock shows 48 − 2 + 24 + 1 = 71.
+   sale split between cash and mobile money (blocked while money is still owed); sees stock go down; makes a third
+   sale; can open a receipt but has no cancel or refund buttons.
+4. **Owner during the day:** receives a delivery; opens a till of their own so two drawers are open; refunds one item
+   in cash and is made to choose which drawer; cancels the third sale (refused without a reason); closes their own
+   till; records an expense paid from the cashier's drawer; adjusts stock for a broken crate (refused without a
+   reason); changes a product's price; adds a user (weak password refused) and switches the account off.
+   Stock shows 48 − 3 + 1 cancelled + 24 + 1 returned = 71.
 5. **Cashier closes:** expected cash 109,500 (float + cash sales − refund − expense); a shortage blocks closing until
    a note is written; closes balanced; closing cumulative sales 40,500; no sale possible afterwards.
 6. **Owner afterwards:** cannot approve the shift until the mobile money total is ticked, then approves; reads the
@@ -81,7 +88,31 @@ One trading day through the real screens, in order, sharing one throwaway databa
 7. **Excel preview:** uploads the real workbook, sees 3,503 lines, the missing September dates and Henken; the import
    button stays disabled; after reloading, nothing has been stored.
 
+**`02-excel-history.spec.ts`** — the whole historical review, on a small made-up workbook carrying every exception:
+
+8. **Import:** checks the file, downloads the preview as an exception report, is held back until both boxes are
+   ticked, imports 24 lines; the screen says NOT RECONCILED and shows 4 exceptions, 6 mappings, 8 unlabelled rows.
+9. **Exceptions:** the same-name question is refused on a note alone, then without effective dates, and accepted only
+   with name, size, price, type and date for both lines; an explanation with evidence is added to the missing dates,
+   which are then accepted as incomplete; the price anomaly is refused as "correct" until the price type and amount
+   are confirmed; the missing price is closed as not sold; decided items stay on record with a Reopen button.
+10. **Product mapping:** approval is refused until the unit is stated; two names are linked to existing products;
+    mkwawa is created without a price and shows "not on sale"; the rest are kept as history only, which needs a note.
+11. **Unlabelled rows:** original values shown per sheet; one row number classified, one excluded (refused without a
+    reason); reviewer and decision history shown.
+12. **Acceptance:** the Owner accepts with a note and the screen changes to "Accepted as reconciled"; lines accepted
+    without explanation still show as Incomplete; live stock is unchanged and mkwawa is switched off with no price.
+
 ### Defects found by testing and fixed
+
+000. **Sixth round (extending the browser tests):**
+     - **In Excel History, a line just decided stayed on the list for a moment after its window closed**, so it could be
+       picked a second time. With two lines both called "Henken" this led to the same one being decided twice and the
+       other left behind. The list is now refreshed before the window closes. (Found as an intermittent test failure.)
+     - Two faults in the tests themselves, not the system: signing in for every test tripped the system's own limit of
+       ten sign-in attempts a minute on fast runs, which the system correctly refused; and the script needed the shop
+       system's ports, so it could not run while you were using the system. Tests now reuse one sign-in, and the
+       script uses its own ports, database and build folder.
 
 00. **Found by the browser tests (fifth round), all fixed:**
     - **The receipt window on the Sales screen could not be closed**, and **the "Correct…" button and status column were missing from the balance history**. Both came from a faulty automated edit I made in an earlier round; the type check and the other tests did not notice. Both are now exercised by the browser tests.
@@ -116,10 +147,9 @@ One trading day through the real screens, in order, sharing one throwaway databa
 
 - **No real cashier has tried the system** (AT-UX-01). The browser tests show the screens work; they cannot show
   whether a first-time user finds them clear.
-- Screens **not** yet exercised in a browser: deciding exceptions, mapping products and labelling rows in Excel
-  History; cancelling (voiding) a sale; editing a product or a user; stock adjustments after go-live; refunds with
-  two drawers open. These are covered by API tests and the type check only. Given what the browser tests found,
-  treat them as unproven until they are added.
+- Still **not** exercised in a browser: anything as the **Accountant** (the browser tests sign in only as Owner and
+  Cashier; the Accountant's limits are covered by API tests); rejecting a count sheet; reopening a decision; a
+  supplementary workbook; switching a payment method off; printing. Treat these as unproven on screen.
 - The real workbook has only been imported into throwaway test databases. It has not been imported into the real
   database; that is the Owner's step.
 - Refunding in cash when two cashiers have drawers open at once: the API supports choosing the drawer; the screen does not yet offer the choice.

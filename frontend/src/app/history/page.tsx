@@ -225,9 +225,10 @@ function Exceptions({ isOwner, onChange }: { isOwner: boolean; onChange: () => v
     setProblem(null);
     try {
       const updated = await action();
+      // Refresh the list before the window closes, so a decided item is never left on show to be picked again.
+      await list.reload();
       setOpen(close ? null : updated);
       setNewNote({ text: "", evidence: "", source: "" });
-      list.reload();
       onChange();
     } catch (err) {
       setProblem(errorMessage(err));
@@ -396,8 +397,8 @@ function Mapping({ isOwner, onChange }: { isOwner: boolean; onChange: () => void
         selling_price: form.mode === "create" && form.price.trim() ? form.price.replace(/,/g, "") : null,
         cost_price: form.mode === "create" && form.cost.trim() ? form.cost.replace(/,/g, "") : null,
       } : { approve: false, note: form.note } });
+      await list.reload();
       setOpen(null);
-      list.reload();
       live.reload();
       onChange();
     } catch (err) {
@@ -494,7 +495,7 @@ function UnlabelledRows({ onChange }: { onChange: () => void }) {
     try {
       await api("/history/unclassified-rows/decide/", { method: "POST", body: {
         ids: rows.map((r) => r.id), action, classification: label[rowNumber] ?? "", reason: reason[rowNumber] ?? "" } });
-      list.reload();
+      await list.reload();
       onChange();
     } catch (err) {
       setProblem(`Row ${rowNumber}: ${errorMessage(err)}`);

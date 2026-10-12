@@ -2,6 +2,8 @@ const backend = process.env.BACKEND_URL || "http://127.0.0.1:8000";
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // The browser tests build into their own folder so they never disturb a running shop system.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   reactStrictMode: true,
   poweredByHeader: false,
   // The API's addresses end with "/"; do not let Next.js strip it.

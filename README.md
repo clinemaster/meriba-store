@@ -65,7 +65,7 @@ API documentation (Owner/Accountant, signed in): <http://localhost:3000/api/v1/d
 cd C:\Projects\meriba-lsms\backend;  .\.venv\Scripts\python -m pytest
 cd C:\Projects\meriba-lsms\frontend; npm test; npm run typecheck
 
-# Browser tests in a real browser, on a throwaway database (stop the shop system first):
+# Browser tests in a real browser, on a throwaway database and their own ports (safe while the shop system is running):
 cd C:\Projects\meriba-lsms; powershell -ExecutionPolicy Bypass -File scripts\e2e.ps1
 ```
 

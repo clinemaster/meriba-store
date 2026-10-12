@@ -162,9 +162,20 @@ test("cashier chooses a password, starts the day and sells", async ({ page }) =>
   await page.getByLabel("1. Find the product").fill("kony");
   await expect(page.getByRole("button", { name: /Konyagi ndogo 200ml.*46 Bottle in stock/ })).toBeVisible();
 
-  await page.getByRole("link", { name: "Today's Sales" }).click();
-  await expect(page.getByRole("row").filter({ hasText: /MB-\d{8}-000/ })).toHaveCount(2);
+  // Sale 3: one bottle, exact cash (the Owner will cancel this one later)
+  await page.getByRole("button", { name: /Konyagi ndogo 200ml.*in stock/ }).click();
+  await page.getByRole("button", { name: /Complete Sale/ }).click();
+  await expect(page.getByRole("dialog", { name: "Sale saved" })).toContainText(/MB-\d{8}-0003/);
+  await page.getByRole("button", { name: "Next Sale" }).click();
+
+  await openScreen(page, "Today's Sales", "Today's Sales");
+  await expect(page.getByRole("row").filter({ hasText: /MB-\d{8}-000/ })).toHaveCount(3);
+  // a cashier can look at a receipt but cannot cancel or refund
+  await page.getByRole("row").filter({ hasText: /-0003/ }).getByRole("button", { name: "View" }).click();
+  await expect(page.getByRole("dialog").getByRole("button", { name: "Print Receipt" })).toBeVisible();
   await expect(page.getByRole("button", { name: /Cancel this sale|Refund items/ })).toHaveCount(0);
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(page.getByRole("dialog")).toBeHidden();
 });
 
 test("owner receives stock, refunds an item and records an expense during the day", async ({ page }) => {
@@ -178,18 +189,48 @@ test("owner receives stock, refunds an item and records an expense during the da
   await page.getByRole("button", { name: /Save delivery of 1 product/ }).click();
   await expect(page.getByText(/Delivery saved/)).toBeVisible();
 
-  await page.getByRole("link", { name: "Today's Sales" }).click();
+  // The Owner opens a till of their own, so two drawers are open at once
+  await openScreen(page, "Home", /Hello, Test Owner/);
+  await page.getByRole("link", { name: "Start Day" }).click();
+  await page.getByRole("button", { name: /Start Day with TZS 0 float/ }).click();
+  await expect(page).toHaveURL(/\/sale$/);
+
+  // Refund one bottle in cash: with two drawers open, the screen must ask which one
+  await openScreen(page, "Today's Sales", "Sales");
   await page.getByRole("row").filter({ hasText: /-0001/ }).getByRole("button", { name: "View" }).click();
   await page.getByRole("button", { name: "Refund items…" }).click();
   await page.getByLabel("Quantity of Konyagi ndogo 200ml to refund").fill("1");
   await page.getByRole("radio", { name: "Cash" }).click();
   await page.getByLabel("Reason for the refund").fill("Bottle was leaking");
   await page.getByRole("button", { name: /Refund TZS 4,500/ }).click();
+  await expect(page.getByRole("dialog").getByRole("alert")).toContainText("Choose which cashier's drawer");
+  await page.getByLabel("Which drawer is the cash taken from?").selectOption({ label: "Asha Juma's drawer" });
+  await page.getByRole("button", { name: /Refund TZS 4,500/ }).click();
   await expect(page.getByRole("dialog").getByText(/Refund of TZS 4,500 by Cash/)).toBeVisible();
   await page.getByRole("button", { name: "Close", exact: true }).click();
   await expect(page.getByRole("dialog")).toBeHidden();
 
-  await page.getByRole("link", { name: "Expenses" }).click();
+  // Cancel (void) the third sale, with a reason
+  await page.getByRole("row").filter({ hasText: /-0003/ }).getByRole("button", { name: "View" }).click();
+  await page.getByRole("button", { name: "Cancel this sale…" }).click();
+  await page.getByRole("button", { name: "Yes, cancel this sale" }).click();
+  await expect(page.getByRole("dialog").getByRole("alert").filter({ hasText: "reason" })).toBeVisible(); // not without a reason
+  await page.getByLabel("Reason for cancelling").click();
+  await page.keyboard.type("Rung up by mistake", { delay: 5 });
+  await page.getByRole("button", { name: "Yes, cancel this sale" }).click();
+  await expect(page.getByRole("dialog").getByText(/Cancelled by Test Owner\. Reason: Rung up by mistake/)).toBeVisible();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(page.getByRole("dialog")).toBeHidden();
+  await expect(page.getByRole("row").filter({ hasText: /-0003/ })).toContainText("Cancelled");
+
+  // The Owner closes their own till (no sales, nothing in it); the day stays open for the cashier
+  await openScreen(page, "Close Day", "Close Day");
+  await page.getByLabel("Cash you counted (TZS)").fill("0");
+  await page.getByRole("button", { name: "Review and Close…" }).click();
+  await page.getByRole("button", { name: "Yes, close my shift" }).click();
+  await expect(page.getByText(/is closed\. No more sales can be added/)).toBeVisible();
+
+  await openScreen(page, "Expenses", "Expenses");
   await page.getByLabel("Category").selectOption("Transport");
   await page.getByLabel("Amount (TZS)").fill("1000");
   await page.getByLabel("What was it for?").fill("Boda boda to the depot");
@@ -198,9 +239,44 @@ test("owner receives stock, refunds an item and records an expense during the da
   await page.getByRole("button", { name: "Save Expense" }).click();
   await expect(page.getByText("Expense of TZS 1,000 saved.")).toBeVisible();
 
-  // 48 counted - 2 sold + 24 received + 1 returned = 71
-  await page.getByRole("link", { name: "Products", exact: true }).first().click();
+  // Stock adjustment after go-live: a crate was broken, so the count is 8 not 9
+  await openScreen(page, "Stock", "Stock");
+  await page.getByLabel("Quantity counted for Safari Kubwa").fill("8");
+  await page.getByRole("button", { name: /Save 1 counted quantity/ }).click();
+  await expect(page.locator('[role="alert"]:not(#__next-route-announcer__)')).toContainText("Write the reason"); // not without a reason
+  await page.getByLabel("Reason for the change").fill("One crate broken in the store room");
+  await page.getByRole("button", { name: /Save 1 counted quantity/ }).click();
+  await expect(page.getByText("Saved the counted quantity for 1 product(s).")).toBeVisible();
+  await expect(page.getByRole("row").filter({ hasText: "One crate broken in the store room" })).toContainText("-1");
+
+  // Edit a product's price (confirmed), and check stock: 48 counted - 3 sold + 1 cancelled + 24 received + 1 returned = 71
+  await openScreen(page, "Products", "Products");
   await expect(page.getByRole("row").filter({ hasText: "Konyagi ndogo" })).toContainText("71");
+  await page.getByRole("row").filter({ hasText: "Safari Kubwa" }).getByRole("button", { name: "Edit" }).click();
+  await page.getByLabel("Selling price (TZS)").fill("37000");
+  await page.getByRole("button", { name: "Save Product" }).click();
+  await expect(page.getByRole("dialog")).toBeHidden();
+  const safari = page.getByRole("row").filter({ hasText: "Safari Kubwa" });
+  await expect(safari).toContainText("TZS 37,000");
+  await expect(safari).toContainText("8");
+
+  // Add a user, then switch the account off (accounts are never deleted)
+  await openScreen(page, "Users", "Users");
+  await page.getByRole("button", { name: "+ Add User" }).click();
+  await page.getByLabel("Username").fill("juma");
+  await page.getByLabel("Full name").fill("Juma Ali");
+  await page.getByLabel("First password").fill("Short1");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("dialog").getByRole("alert")).toContainText(/too short/i); // weak password refused, in plain words
+  await page.getByLabel("First password").fill("Count-Stock-55");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("dialog")).toBeHidden();
+  const juma = page.getByRole("row").filter({ hasText: "Juma Ali" });
+  await juma.getByRole("button", { name: "Edit" }).click();
+  await page.getByLabel(/^Active/).uncheck();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("dialog")).toBeHidden();
+  await expect(juma).toContainText("Switched off");
 });
 
 test("cashier closes the day with the cash count", async ({ page }) => {

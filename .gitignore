@@ -14,9 +14,11 @@ backend/logs/
 # Node
 node_modules/
 .next/
+.next-e2e/
 out/
 coverage/
 e2e-results/
+frontend/e2e/.fixtures/
 playwright-report/
 *.tsbuildinfo
 next-env.d.ts
