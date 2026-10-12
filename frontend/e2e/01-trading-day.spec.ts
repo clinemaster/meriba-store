@@ -60,9 +60,9 @@ test("owner sets up the shop and goes live", async ({ page }) => {
     await form.getByLabel("Product Name").click();
     await page.keyboard.type(p.name, { delay: 15 });
     await expect(form.getByLabel("Product Name")).toHaveValue(p.name);
-    // Sold By is a fixed list, not free text
-    await expect(form.getByLabel("Sold By").locator("option")).toHaveText(["Bottle", "Crate", "Carton", "Box", "Pack"]);
-    await form.getByLabel("Sold By").selectOption(p.unit);
+    // Unit is a fixed list, not free text
+    await expect(form.getByLabel("Unit", { exact: true }).locator("option")).toHaveText(["Bottle", "Crate", "Carton", "Box", "Pack"]);
+    await form.getByLabel("Unit", { exact: true }).selectOption(p.unit);
     await form.getByLabel("Volume (ml)").fill(p.volume);
     if (p.bottles) await form.getByLabel("Bottles in one crate").fill(p.bottles);
     await form.getByLabel("Selling Price (TZS)").fill(p.price);
@@ -73,7 +73,7 @@ test("owner sets up the shop and goes live", async ({ page }) => {
   }
   // the table shows the agreed columns, in the agreed order
   await expect(page.getByRole("columnheader")).toHaveText([
-    /^Product Name/, /^Sold By/, /^Volume \(ml\)/, /^Total Item Stock/, /^Sales/, /^Closing Stock/, /^Purchase Price/, /^Selling Price/,
+    /^Product Name/, /^Unit/, /^Volume \(ml\)/, /^Total Item Stock/, /^Sales/, /^Closing Stock/, /^Purchase Price/, /^Selling Price/,
     /^Total Sales/, /^Profit/, /^Stock/, /^Actions/]);
   const safariRow = page.getByRole("row").filter({ hasText: "Safari Kubwa" });
   await expect(safariRow).toContainText("Crate");

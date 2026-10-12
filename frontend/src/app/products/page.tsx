@@ -16,10 +16,10 @@ type Form = typeof EMPTY;
 /** The eleven columns, in the agreed order. `key` is what the server sorts by. */
 const COLUMNS: { key: string; label: string; numeric?: boolean; help: string }[] = [
   { key: "name", label: "Product Name", help: "Name of the product" },
-  { key: "sold_by", label: "Sold By", help: "The unit this product is counted and sold in" },
+  { key: "sold_by", label: "Unit", help: "The unit this product is counted and sold in" },
   { key: "volume_ml", label: "Volume (ml)", numeric: true, help: "Volume of one bottle, in millilitres" },
   { key: "total_item_stock", label: "Total Item Stock", numeric: true, help: "Opening stock for the period plus stock received and other stock coming in" },
-  { key: "sales", label: "Sales", numeric: true, help: "Quantity sold in the period, in the Sold By unit. Cancelled sales are not counted" },
+  { key: "sales", label: "Sales", numeric: true, help: "Quantity sold in the period, in the product's unit. Cancelled sales are not counted" },
   { key: "closing_stock", label: "Closing Stock", numeric: true, help: "Opening stock + stock in − sales − breakages and other stock out" },
   { key: "purchase_price", label: "Purchase Price", numeric: true, help: "Weighted-average cost of one unit now in stock" },
   { key: "selling_price", label: "Selling Price", numeric: true, help: "Current approved selling price of one unit" },
@@ -285,12 +285,12 @@ export default function ProductsPage() {
 
   return (
     <div>
-      <PageTitle title="Products" help="Every product with its stock and sales for the day or dates you choose. Quantities are in each product's Sold By unit. Products are never deleted; switch one off if you stop selling it."
+      <PageTitle title="Products" help="Every product with its stock and sales for the day or dates you choose. Quantities are in each product's own unit. Products are never deleted; switch one off if you stop selling it."
         action={<button className="btn-primary" onClick={() => open("new")}>+ Add Product</button>} />
 
       <div className="card mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
         <div className="lg:col-span-2"><Field label="Search">{(p) => <input {...p} className="input" placeholder="Name, code or barcode" value={search} onChange={(e) => setSearch(e.target.value)} />}</Field></div>
-        <Field label="Sold By">{(p) => (
+        <Field label="Unit">{(p) => (
           <select {...p} className="input" value={soldBy} onChange={(e) => { setSoldBy(e.target.value); setPage(1); }}>
             <option value="">All units</option>{(data?.sold_by_options ?? UNITS).map((u) => <option key={u}>{u}</option>)}
           </select>)}</Field>
@@ -392,7 +392,7 @@ export default function ProductsPage() {
             {problem && <Alert kind="error">{problem}</Alert>}
             <Field label="Product Name" error={errors.name}>{(p) => <input {...p} className="input" value={form.name} onChange={set("name")} autoFocus />}</Field>
             <div className="grid gap-3 sm:grid-cols-3">
-              <Field label="Sold By" hint="The unit it is counted and sold in." error={errors.base_unit}>{(p) => (
+              <Field label="Unit" hint="What it is counted and sold in." error={errors.base_unit}>{(p) => (
                 <select {...p} className="input" value={form.base_unit} onChange={set("base_unit")}>{UNITS.map((u) => <option key={u}>{u}</option>)}</select>)}</Field>
               <Field label="Volume (ml)" hint="Of one bottle, e.g. 750. Leave empty if not applicable." error={errors.volume_ml}>{(p) => <input {...p} className="input" inputMode="numeric" value={form.volume_ml} onChange={whole("volume_ml")} />}</Field>
               {form.base_unit !== "Bottle" && (

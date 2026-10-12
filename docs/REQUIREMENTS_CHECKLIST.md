@@ -38,7 +38,7 @@ Last updated: 12 Oct 2026.
 ### 3.3 Products and units
 | ID | Status | Notes |
 |---|---|---|
-| FR-PROD-01 Product fields | 🟡 | Name, code, barcode, Sold By (approved list), volume (ml), bottles per unit, selling price, purchase price, weighted-average cost, active. Category and brand are stored but not on the screens. Suppliers are linked to deliveries, not to products |
+| FR-PROD-01 Product fields | 🟡 | Name, code, barcode, Unit (approved list), volume (ml), bottles per unit, selling price, purchase price, weighted-average cost, active. Category and brand are stored but not on the screens. Suppliers are linked to deliveries, not to products |
 | Product table enhancement (12 Oct 2026): eleven columns per business day or date range, search, sort, pagination, details, export | ✅ | See the section in [OPEN_DECISIONS.md](OPEN_DECISIONS.md); decisions P1–P12 need confirmation |
 | Weighted-average costing; cost frozen on each sale line; gross profit, shown as not available or provisional when cost is unreliable | ✅ | |
 | FR-PROD-02 Search | ✅ | Name, code, barcode, category, size |

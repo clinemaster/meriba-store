@@ -127,7 +127,7 @@ class ProductManageSerializer(ProductSaleSerializer):
             # afterwards would silently change what those quantities mean.
             if InventoryMovement.objects.filter(product=current).exists() or current.units.exists():
                 raise serializers.ValidationError({"base_unit": [
-                    f"This product already has stock or sales recorded in {current.base_unit.lower()}s, so its Sold By unit "
+                    f"This product already has stock or sales recorded in {current.base_unit.lower()}s, so its unit "
                     "cannot be changed. Add an extra package to sell it another way, or create a new product."
                 ]})
         per_unit = attrs.get("bottles_per_unit", getattr(current, "bottles_per_unit", None))
@@ -257,7 +257,7 @@ class ProductViewSet(viewsets.ModelViewSet):
             response.write("﻿")
             writer = csv.writer(response)
             writer.writerow(["MERIBA product table", f"{start} to {end}"])
-            writer.writerow(["Product Name", "Sold By", "Volume (ml)", "Total Item Stock", "Sales", "Closing Stock", "Purchase Price",
+            writer.writerow(["Product Name", "Unit", "Volume (ml)", "Total Item Stock", "Sales", "Closing Stock", "Purchase Price",
                              "Selling Price", "Total Sales", "Profit", "Stock", "Notes"])
             for r in rows:
                 notes = []

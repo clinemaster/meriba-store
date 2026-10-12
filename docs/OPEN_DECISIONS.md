@@ -109,7 +109,7 @@ Mandatory controls confirmed with the policy, and where each lives:
 3. **The verified opening cumulative sales balance** and its cutover date — or your explicit confirmation that tracking starts fresh from zero.
 ## Product table enhancement (12 Oct 2026)
 
-Built as specified: the Products screen shows Product Name, Sold By, Volume (ml), Total Item Stock, Sales, Closing
+Built as specified: the Products screen shows Product Name, Unit (first labelled "Sold By"; renamed at the owner's request on 13 Oct 2026), Volume (ml), Total Item Stock, Sales, Closing
 Stock, Purchase Price, Selling Price, Total Sales, Profit and Stock, for a business day or a date range, with search,
 sorting, pagination, a details view and CSV export. Cost and profit are for the Owner and Accountant only.
 
@@ -118,9 +118,9 @@ sorting, pagination, a details view and CSV export. Cost and profit are for the 
 | Column | Definition in the system |
 |---|---|
 | Total Item Stock | Opening stock for the period + deliveries, returns to the shelf, and counts that added stock |
-| Sales | Quantity sold in the period, in the product's Sold By unit. A cancelled sale is not a sale. A crate sold from a bottle product counts as its bottles |
+| Sales | Quantity sold in the period, in the product's own unit. A cancelled sale is not a sale. A crate sold from a bottle product counts as its bottles |
 | Closing Stock | Opening + stock in − sales − breakages and other stock out. For a simple day: Total Item Stock − Sales |
-| Purchase Price | Weighted-average cost of the units now in stock, per Sold By unit |
+| Purchase Price | Weighted-average cost of the units now in stock, per unit |
 | Selling Price | The current selling price |
 | Total Sales | Completed sales in the period, at the prices actually charged, less refunds given in the period |
 | Profit | Gross profit: Total Sales − cost of goods sold. Expenses are not taken off |
@@ -130,10 +130,10 @@ sorting, pagination, a details view and CSV export. Cost and profit are for the 
 
 | # | Topic | What the system does | Why |
 |---|---|---|---|
-| P1 | **The internal stock unit** | Each product's stock is kept in its own Sold By unit (your earlier decision D3: one unit per product, as in the Excel). A Konyagi counted in bottles is kept in bottles; a Safari counted in crates is kept in crates | You wrote "preferably individual bottles or another approved base unit". Converting crate products to bottles would change every count sheet and price. Tell me if you want that instead |
+| P1 | **The internal stock unit** | Each product's stock is kept in its own unit (your earlier decision D3: one unit per product, as in the Excel). A Konyagi counted in bottles is kept in bottles; a Safari counted in crates is kept in crates | You wrote "preferably individual bottles or another approved base unit". Converting crate products to bottles would change every count sheet and price. Tell me if you want that instead |
 | P2 | **Package configuration** | Two separate things: (a) "bottles in one crate" on a crate product, used to show the bottle equivalent; (b) an extra package on a product, e.g. "also sell by the crate of 12", with its own price. Selling one crate takes 12 bottles out of stock. Each product has its own figure | Covers both "a product sold as a crate" and "a product sold in several package sizes" |
 | P3 | **Who configures packages** | Owner or Accountant adds or changes a package; **only the Owner verifies** it, and it cannot be sold until verified. Changing the number resets verification. Every sale line keeps the number it was sold with | So a change can never alter past sales or stock |
-| P4 | **Changing Sold By** | Refused once a product has stock, sales or packages | Its recorded quantities would silently change meaning |
+| P4 | **Changing the Unit** | Refused once a product has stock, sales or packages | Its recorded quantities would silently change meaning |
 | P5 | **Costing method** | Weighted average, recalculated on each delivery: (in stock × old average + received × delivery cost) ÷ (in stock + received). The latest price is never applied to stock already held | As you specified |
 | P6 | **Cost of opening stock** | Valued at the Purchase Price entered on the product when the Owner approves the count. If none is entered, cost is unknown | There are no delivery records for opening stock |
 | P7 | **A delivery recorded with no cost** | Carried at the existing average, and the product is marked **provisional**; profit on what is sold from it shows "(provisional)" | Rather than invent a cost or drop the profit figure |

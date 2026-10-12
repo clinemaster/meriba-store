@@ -147,9 +147,9 @@ explicit price type.
 
 | Table | New column | Meaning |
 |---|---|---|
-| `catalog_product` | `base_unit` (now restricted) | "Sold By": one of Crate, Carton, Box, Bottle, Pack. Every quantity of the product is in this unit |
+| `catalog_product` | `base_unit` (now restricted) | Shown on screen as "Unit": one of Crate, Carton, Box, Bottle, Pack. Every quantity of the product is in this unit |
 | | `volume_ml` | Volume of one bottle, in millilitres; blank if not applicable or not verified |
-| | `bottles_per_unit` | Bottles in one Sold By unit (per product; nothing assumes all crates are alike) |
+| | `bottles_per_unit` | Bottles in one unit (per product; nothing assumes all crates are alike) |
 | | `average_cost` | Weighted-average cost of the units in stock; maintained by the system; blank = no reliable cost |
 | | `cost_provisional` | True when part of the average rests on an assumed cost |
 | `catalog_productunit` | `name` (now restricted) | An extra package, from the same approved list |

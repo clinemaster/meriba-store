@@ -209,7 +209,7 @@ Leave the dates empty for the current business day.
 | Column | What it tells you |
 |---|---|
 | Product Name | The product |
-| Sold By | Crate, Carton, Box, Bottle or Pack: the unit it is counted and sold in |
+| Unit | Crate, Carton, Box, Bottle or Pack: what it is counted and sold in |
 | Volume (ml) | The size of one bottle |
 | Total Item Stock | What you had to sell: opening stock plus anything that came in |
 | Sales | How many were sold |
@@ -221,17 +221,17 @@ Leave the dates empty for the current business day.
 | Stock | What is on the shelf right now |
 
 - Press a **column heading** to sort by it; press again to reverse.
-- **Search**, **Sold By** and **Show** narrow the list. **Download for Excel** saves what you see.
+- **Search**, **Unit** and **Show** narrow the list. **Download for Excel** saves what you see.
 - Profit says **Not available** when a sale has no purchase cost on record, and **(provisional)** when a delivery was
   entered without a cost. Enter costs on deliveries to avoid both.
 - **Details** shows the day's sums, the package configuration, every stock movement, and every delivery with what it
   did to the average cost.
 
 ### Adding or changing a product
-Press **+ Add Product** or **Edit**. Choose **Sold By** from the list. **Volume (ml)** is the size of one bottle;
+Press **+ Add Product** or **Edit**. Choose the **Unit** from the list. **Volume (ml)** is the size of one bottle;
 leave it empty if it does not apply. For a crate, carton, box or pack you can enter how many bottles one holds.
 **Purchase Price** is what one costs from the supplier; cashiers never see it.
-Once a product has stock or sales, its Sold By unit cannot be changed.
+Once a product has stock or sales, its unit cannot be changed.
 
 ### Selling the same product by the crate as well as the bottle
 1. Open **Details** for the product.

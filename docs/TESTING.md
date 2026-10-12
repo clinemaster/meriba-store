@@ -39,7 +39,7 @@ cd C:\Projects\meriba-lsms; powershell -ExecutionPolicy Bypass -File scripts\e2e
 
 | # | Point | Result |
 |---|---|---|
-| 1 | New fields supported by backend and database | ✅ Sold By, volume, bottles per unit, average cost; cost on every sale line |
+| 1 | New fields supported by backend and database | ✅ Unit, volume, bottles per unit, average cost; cost on every sale line |
 | 2 | Safe migration of existing data | ✅ Applied to the real database after a backup: two products kept their unit, volumes read as 750 and 200 ml, nothing else changed. A unit not on the list stops the migration rather than being remapped |
 | 3 | History preserved | ✅ Sale lines, stock movements and delivery costs are never updated; each delivery records the average before and after |
 | 4 | Package conversion, a crate of 12 bottles | ✅ Refused until the Owner verifies; 2 crates take 24 bottles; changing the figure leaves past sales alone and needs re-verification. Also in the browser: configured, verified and sold from the New Sale screen |
@@ -49,11 +49,11 @@ cd C:\Projects\meriba-lsms; powershell -ExecutionPolicy Bypass -File scripts\e2e
 | 8 | Refunds, cancellations, reversals | ✅ Cancelled sale in neither sales nor cost; restocked refund returns its cost; damaged refund stays a cost |
 | 9 | Cashier cannot reach purchase prices or profit, by screen or API | ✅ Table, export, details, cost reports and package changes all refused; product, sale and receipt data sent to a cashier contain no cost fields |
 | 10 | Price changes do not alter history | ✅ Receipt, Total Sales, cost and profit unchanged after changing selling price, purchase price and name |
-| 11 | Filtering and pagination on a large list | ✅ 60 products: pages, sorting both ways with blanks last, search, Sold By and on-sale filters, bad dates and page numbers refused |
+| 11 | Filtering and pagination on a large list | ✅ 60 products: pages, sorting both ways with blanks last, search, Unit and on-sale filters, bad dates and page numbers refused |
 | 12 | All relevant tests run | ✅ Figures above |
 
 Also checked: profit shown as "Not available" or "provisional" rather than invented; expenses excluded from product
-profit; opening stock valued at the entered purchase price; the export matches the screen; Sold By cannot change once
+profit; opening stock valued at the entered purchase price; the export matches the screen; the Unit cannot change once
 stock exists; only the five approved units are accepted, by the API and by the database itself.
 | Earlier scripted run through the website address (no browser) | 44 of 44 checks in the third round. Superseded by the browser tests |
 | Real October workbook through the importer | dry run and import both tested: 3,503 lines stored, five exceptions raised, live tables untouched, second import adds nothing |
