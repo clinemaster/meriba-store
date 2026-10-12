@@ -109,7 +109,7 @@ Mandatory controls confirmed with the policy, and where each lives:
 3. **The verified opening cumulative sales balance** and its cutover date — or your explicit confirmation that tracking starts fresh from zero.
 ## Product table enhancement (12 Oct 2026)
 
-Built as specified: the Products screen shows Product Name, Unit (first labelled "Sold By"; renamed at the owner's request on 13 Oct 2026), Volume (ml), Total Item Stock, Sales, Closing
+Built as specified: the Products screen shows Product Name, Unit (first labelled "Sold By"; renamed at the owner's request on 13 Oct 2026), Volume (ml), Total Stock, Sales, Closing
 Stock, Purchase Price, Selling Price, Total Sales, Profit and Stock, for a business day or a date range, with search,
 sorting, pagination, a details view and CSV export. Cost and profit are for the Owner and Accountant only.
 
@@ -117,9 +117,9 @@ sorting, pagination, a details view and CSV export. Cost and profit are for the 
 
 | Column | Definition in the system |
 |---|---|
-| Total Item Stock | Opening stock for the period + deliveries, returns to the shelf, and counts that added stock |
+| Total Stock | Opening stock for the period + deliveries, returns to the shelf, and counts that added stock |
 | Sales | Quantity sold in the period, in the product's own unit. A cancelled sale is not a sale. A crate sold from a bottle product counts as its bottles |
-| Closing Stock | Opening + stock in − sales − breakages and other stock out. For a simple day: Total Item Stock − Sales |
+| Closing Stock | Opening + stock in − sales − breakages and other stock out. For a simple day: Total Stock − Sales |
 | Purchase Price | Weighted-average cost of the units now in stock, per unit |
 | Selling Price | The current selling price |
 | Total Sales | Completed sales in the period, at the prices actually charged, less refunds given in the period |

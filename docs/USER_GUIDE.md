@@ -211,9 +211,9 @@ Leave the dates empty for the current business day.
 | Product Name | The product |
 | Unit | Crate, Carton, Box, Bottle or Pack: what it is counted and sold in |
 | Volume (ml) | The size of one bottle |
-| Total Item Stock | What you had to sell: opening stock plus anything that came in |
+| Total Stock | What you had to sell: opening stock plus anything that came in |
 | Sales | How many were sold |
-| Closing Stock | What was left: Total Item Stock less sales and breakages |
+| Closing Stock | What was left: Total Stock less sales and breakages |
 | Purchase Price | The average cost of one unit now in stock |
 | Selling Price | Today's selling price |
 | Total Sales | Money from sales in the period, less refunds |

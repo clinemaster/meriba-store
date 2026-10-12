@@ -73,7 +73,7 @@ test("owner sets up the shop and goes live", async ({ page }) => {
   }
   // the table shows the agreed columns, in the agreed order
   await expect(page.getByRole("columnheader")).toHaveText([
-    /^Product Name/, /^Unit/, /^Volume \(ml\)/, /^Total Item Stock/, /^Sales/, /^Closing Stock/, /^Purchase Price/, /^Selling Price/,
+    /^Product Name/, /^Unit/, /^Volume \(ml\)/, /^Total Stock/, /^Sales/, /^Closing Stock/, /^Purchase Price/, /^Selling Price/,
     /^Total Sales/, /^Profit/, /^Stock/, /^Actions/]);
   const safariRow = page.getByRole("row").filter({ hasText: "Safari Kubwa" });
   await expect(safariRow).toContainText("Crate");
@@ -292,7 +292,7 @@ test("owner receives stock, refunds an item and records an expense during the da
   // Product details: the day's figures, package configuration, movement and purchase history
   await konyagiRow.getByRole("button", { name: "Details" }).click();
   const details = page.getByRole("dialog");
-  await expect(details.getByRole("row").filter({ hasText: "= Total Item Stock" })).toContainText("73");
+  await expect(details.getByRole("row").filter({ hasText: "= Total Stock" })).toContainText("73");
   await expect(details.getByRole("row").filter({ hasText: "= Closing Stock" })).toContainText("71");
   await expect(details.getByRole("row").filter({ hasText: "Gross profit" })).toContainText("TZS 750");
   await expect(details).toContainText("each bottle is 200 ml");

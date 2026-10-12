@@ -18,7 +18,7 @@ const COLUMNS: { key: string; label: string; numeric?: boolean; help: string }[]
   { key: "name", label: "Product Name", help: "Name of the product" },
   { key: "sold_by", label: "Unit", help: "The unit this product is counted and sold in" },
   { key: "volume_ml", label: "Volume (ml)", numeric: true, help: "Volume of one bottle, in millilitres" },
-  { key: "total_item_stock", label: "Total Item Stock", numeric: true, help: "Opening stock for the period plus stock received and other stock coming in" },
+  { key: "total_item_stock", label: "Total Stock", numeric: true, help: "Opening stock for the period plus stock received and other stock coming in" },
   { key: "sales", label: "Sales", numeric: true, help: "Quantity sold in the period, in the product's unit. Cancelled sales are not counted" },
   { key: "closing_stock", label: "Closing Stock", numeric: true, help: "Opening stock + stock in − sales − breakages and other stock out" },
   { key: "purchase_price", label: "Purchase Price", numeric: true, help: "Weighted-average cost of one unit now in stock" },
@@ -81,7 +81,7 @@ function Details({ id, from, to, isOwner, onClose, onChanged }: { id: number; fr
               <tbody>
                 <tr><td>Opening stock</td><td className="num">{formatQty(f.opening_stock)} {unit}</td></tr>
                 <tr><td>+ Stock in (deliveries, returns, counts)</td><td className="num">{formatQty(f.incoming)}</td></tr>
-                <tr className="font-semibold"><td>= Total Item Stock</td><td className="num">{formatQty(f.total_item_stock)}</td></tr>
+                <tr className="font-semibold"><td>= Total Stock</td><td className="num">{formatQty(f.total_item_stock)}</td></tr>
                 <tr><td>− Sales</td><td className="num">{formatQty(f.sales)}</td></tr>
                 <tr><td>− Breakages and other stock out</td><td className="num">{formatQty(f.other_out)}</td></tr>
                 <tr className="font-semibold"><td>= Closing Stock</td><td className="num">{formatQty(f.closing_stock)}</td></tr>

@@ -148,7 +148,7 @@ def test_daily_stock_figures_and_carry_forward(cashier, accountant, shop, make_p
     sell(till, [(product, 45)], [(shop.cash, 202500)])
     close(till, shift["id"], 202500)
     day1 = row(office, product, date=str(D1))
-    # Total Item Stock = opening 100 + received 20; Closing = Total - Sales (AT-STK-01)
+    # Total Stock = opening 100 + received 20; Closing = Total - Sales (AT-STK-01)
     assert (day1["opening_stock"], day1["incoming"], day1["total_item_stock"], day1["sales"], day1["closing_stock"]) == ("100", "20", "120", "45", "75")
 
     set_today(D2)
@@ -359,7 +359,7 @@ def test_table_export_matches_the_screen(owner, cashier, shop, make_product):
     response = client_for(owner).get("/api/v1/products/table/?download=csv")
     assert response.status_code == 200 and response["Content-Type"].startswith("text/csv") and "attachment" in response["Content-Disposition"]
     lines = response.content.decode("utf-8-sig").splitlines()
-    assert lines[1] == "Product Name,Unit,Volume (ml),Total Item Stock,Sales,Closing Stock,Purchase Price,Selling Price,Total Sales,Profit,Stock,Notes"
+    assert lines[1] == "Product Name,Unit,Volume (ml),Total Stock,Sales,Closing Stock,Purchase Price,Selling Price,Total Sales,Profit,Stock,Notes"
     assert lines[2] == "Konyagi,Crate,500,20,2,18,3000,4500,9000,3000,18,"
     assert lines[3].startswith("TOTAL,,,,,,,,9000,3000")
     assert AuditLog.objects.filter(action="report.exported").count() == 1
