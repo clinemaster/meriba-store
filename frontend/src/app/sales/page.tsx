@@ -1,0 +1,127 @@
+"use client";
+
+import { useState } from "react";
+
+import { Receipt } from "@/components/Receipt";
+import { Alert, Field, Modal, PageTitle, Spinner, StatusBadge } from "@/components/ui";
+import { api, errorMessage, type Page } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
+import { formatDate, formatTime, formatTZS } from "@/lib/money";
+import type { CurrentDay, Sale, ShopSettings } from "@/lib/types";
+import { useLoad } from "@/lib/useLoad";
+
+export default function SalesPage() {
+  const { user } = useAuth();
+  const office = user?.role !== "CASHIER";
+  const current = useLoad<CurrentDay>("/day/current/");
+  const shop = useLoad<ShopSettings>("/settings/");
+  const [pickedDate, setPickedDate] = useState("");
+  const [page, setPage] = useState(1);
+  const date = pickedDate || current.data?.day?.date || current.data?.today || "";
+  const sales = useLoad<Page<Sale>>(date ? `/sales/?date=${date}&page=${page}` : null);
+  const [open, setOpen] = useState<Sale | null>(null);
+  const [voiding, setVoiding] = useState(false);
+  const [reason, setReason] = useState("");
+  const [problem, setProblem] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  function close() {
+    setOpen(null);
+    setVoiding(false);
+    setReason("");
+    setProblem(null);
+  }
+
+  async function cancelSale() {
+    if (!open || busy) return;
+    if (reason.trim().length < 5) return setProblem("Write the reason for cancelling this sale.");
+    setBusy(true);
+    try {
+      const updated = await api<Sale>(`/sales/${open.id}/void/`, { method: "POST", body: { reason } });
+      setOpen(updated);
+      setVoiding(false);
+      setProblem(null);
+      sales.reload();
+    } catch (err) {
+      setProblem(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const rows = sales.data?.results ?? [];
+  const pages = Math.max(1, Math.ceil((sales.data?.count ?? 0) / 25));
+
+  return (
+    <div>
+      <PageTitle
+        title={office ? "Sales" : "Today's Sales"}
+        help={office ? "All sales for the chosen day. Open a sale to see or print its receipt." : "The sales you have made. Open a sale to see or print its receipt again."}
+        action={
+          <div className="w-56">
+            <Field label="Day">{(p) => <input {...p} type="date" className="input" value={date} onChange={(e) => { setPickedDate(e.target.value); setPage(1); }} />}</Field>
+          </div>
+        }
+      />
+      <div className="card overflow-x-auto">
+        {sales.loading && !sales.data ? <Spinner /> : sales.error ? <Alert kind="error">{sales.error}</Alert> : rows.length === 0 ? (
+          <p className="p-4 text-slate-600">No sales recorded for {formatDate(date)}.</p>
+        ) : (
+          <table className="table">
+            <thead>
+              <tr><th>Time</th><th>Receipt</th>{office && <th>Cashier</th>}<th>Paid by</th><th className="num">Total</th><th>Status</th><th><span className="sr-only">Actions</span></th></tr>
+            </thead>
+            <tbody>
+              {rows.map((s) => (
+                <tr key={s.id} className={s.status === "VOIDED" ? "text-slate-500" : ""}>
+                  <td>{formatTime(s.created_at)}</td>
+                  <td className="font-mono">{s.receipt_number}</td>
+                  {office && <td>{s.cashier_name}</td>}
+                  <td>{s.payments.map((p) => p.method_name).join(" + ")}</td>
+                  <td className={`num font-semibold ${s.status === "VOIDED" ? "line-through" : ""}`}>{formatTZS(s.total)}</td>
+                  <td><StatusBadge status={s.status} label={s.status_label} /></td>
+                  <td className="text-right"><button className="btn-secondary min-h-[2.5rem]" onClick={() => setOpen(s)}>View</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {pages > 1 && (
+          <div className="mt-3 flex items-center justify-end gap-3">
+            <button className="btn-secondary min-h-[2.5rem]" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</button>
+            <span>Page {page} of {pages}</span>
+            <button className="btn-secondary min-h-[2.5rem]" disabled={page >= pages} onClick={() => setPage(page + 1)}>Next</button>
+          </div>
+        )}
+      </div>
+
+      {open && (
+        <Modal title={`Receipt ${open.receipt_number}`} onClose={close}>
+          {open.status === "VOIDED" && (
+            <div className="no-print mb-3"><Alert kind="warning">Cancelled by {open.voided_by_name}. Reason: {open.void_reason}</Alert></div>
+          )}
+          <Receipt sale={open} shop={shop.data} />
+          {problem && <div className="no-print mt-3"><Alert kind="error">{problem}</Alert></div>}
+          {voiding ? (
+            <div className="no-print mt-4 space-y-3">
+              <Alert kind="warning">Cancelling puts the items back into stock and removes {formatTZS(open.total)} from today&apos;s sales. The sale stays on record as cancelled. This cannot be undone.</Alert>
+              <Field label="Reason for cancelling" hint="For example: wrong product entered, customer returned immediately.">
+                {(p) => <input {...p} className="input" value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} autoFocus />}
+              </Field>
+              <div className="flex gap-3">
+                <button className="btn-danger" disabled={busy} onClick={cancelSale}>{busy ? "Cancelling…" : "Yes, cancel this sale"}</button>
+                <button className="btn-secondary" onClick={() => setVoiding(false)}>Keep the sale</button>
+              </div>
+            </div>
+          ) : (
+            <div className="no-print mt-4 flex flex-wrap gap-3">
+              <button className="btn-primary" onClick={() => window.print()}>Print Receipt</button>
+              <button className="btn-secondary" onClick={close}>Close</button>
+              {office && open.status === "COMPLETED" && <button className="btn-danger ml-auto" onClick={() => setVoiding(true)}>Cancel this sale…</button>}
+            </div>
+          )}
+        </Modal>
+      )}
+    </div>
+  );
+}

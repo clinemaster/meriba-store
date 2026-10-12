@@ -31,7 +31,7 @@ class PaymentMethodViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = PaymentMethod.objects.all()
-        return qs if self.request.user.is_owner else qs.filter(is_active=True)
+        return qs if getattr(self.request.user, "is_owner", False) else qs.filter(is_active=True)
 
     def perform_create(self, serializer):
         method = serializer.save()

@@ -126,7 +126,7 @@ class ProductViewSet(viewsets.ModelViewSet):
         return [IsSignedIn()] if self.action in ("list", "retrieve") else [IsOwnerOrAccountant()]
 
     def get_serializer_class(self):
-        return ProductManageSerializer if self.request.user.is_back_office else ProductSaleSerializer
+        return ProductManageSerializer if getattr(self.request.user, "is_back_office", False) else ProductSaleSerializer
 
     def get_queryset(self):
         balance = StockBalance.objects.filter(branch=get_branch(), product=OuterRef("pk")).values("quantity")[:1]
@@ -139,7 +139,7 @@ class ProductViewSet(viewsets.ModelViewSet):
         )
         params = self.request.query_params
         # Cashiers only ever see products that are on sale.
-        if not self.request.user.is_back_office or params.get("active") == "true":
+        if not getattr(self.request.user, "is_back_office", False) or params.get("active") == "true":
             qs = qs.filter(is_active=True)
         search = (params.get("search") or "").strip()
         if search:
