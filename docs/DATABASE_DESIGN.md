@@ -43,6 +43,11 @@ core_auditlog  (who, what, when, why, before, after)
 | `sales_sale` | Receipt number, cashier, day, shift, totals, change, status, void details |
 | `sales_saleitem` | Product, name/price **as they were at the time**, quantity, line total |
 | `sales_payment` | Method, amount kept, amount handed over, reference, status |
+| `sales_refund`, `sales_refunditem` | Money given back: original sale and line, quantity, amount, whether restocked, the business day it was recorded on, the drawer it came from |
+| `trading_daycorrection` | Owner-authorised correction of a closed day: amount, reason, authoriser, net sales and closing balance before and after |
+| `finance_supplier` | Suppliers |
+| `finance_goodsreceipt`, `finance_goodsreceiptline` | A delivery: optional supplier and invoice number, products, quantities, optional cost |
+| `finance_expense` | Expense: date, category, description, amount, payment method, drawer it was paid from (if any), status |
 
 ## Business rules enforced by the database itself
 
@@ -59,7 +64,10 @@ core_auditlog  (who, what, when, why, before, after)
 | A cancelled sale must have a time and a reason | `sale_void_needs_reason` |
 | Line base quantity = quantity × unit factor | `sale_item_base_quantity_formula` |
 | One business day per date; only one open day | `business_day_one_per_date`, `business_day_one_open_per_branch` |
-| **Net sales = gross − discounts − voids − refunds** | `business_day_net_sales_formula` |
+| **Net sales = gross − discounts − voids − refunds + corrections** | `business_day_net_sales_with_adjustments` |
+| A refund has a positive total and a reason; a line is refunded once per refund | `refund_total_positive`, `refund_needs_reason`, `refund_item_once_per_line` |
+| A day correction is never zero and always has a reason | `day_correction_not_zero`, `day_correction_needs_reason` |
+| A delivery, refund, expense or correction request is saved once | `request_key` unique on each |
 | **Closing cumulative sales = opening + net sales** (closed days); empty while open | `business_day_closing_balance_formula` |
 | **A closing balance is carried forward at most once** | `previous_day` is one-to-one |
 | One shift per cashier per day; one open shift per cashier | `shift_one_per_cashier_per_day`, `shift_one_open_per_cashier` |
@@ -95,7 +103,7 @@ Stock is never worked out from money figures, and money is never worked out from
 **Cash** — table `trading_cashiershift`
 
 ```
-expected cash = opening float + cash kept from sales      (− cash refunds + cash in − cash out: not built yet)
+expected cash = opening float + cash kept from sales − cash refunds − cash paid out for expenses
 cash variance = counted cash − expected cash              (negative = short, positive = over)
 ```
 
@@ -106,5 +114,12 @@ and by business date; audit log by time, action and (entity type, entity id); pr
 
 ## Not yet in the schema
 
-Suppliers, purchase orders, goods receipts, returns/refunds, cash in/out, expenses, daily per-product stock
-summary, day-reopen records, import batches. They arrive with their phases as new migrations.
+Purchase orders, cash put into a drawer mid-shift, a stored daily per-product stock summary (it is a report
+instead), import batches. They arrive with their phases as new migrations.
+
+## Refunds and corrections never rewrite history
+
+- A **refund** adds rows; it changes nothing on the original sale or its day. It lowers net sales of the day it is recorded on.
+- A **correction** changes a closed day's `adjustments`, `net_sales` and `closing_cumulative_sales`, and the opening
+  and closing balances of later days. The gross, void and refund figures stay as closed, and `trading_daycorrection`
+  keeps the before and after values, so the original closing result can always be read back.

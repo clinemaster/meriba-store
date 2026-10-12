@@ -14,8 +14,11 @@ export const NAV: NavItem[] = [
   { href: "/closing", label: "Daily Closing", roles: OFFICE },
   { href: "/products", label: "Products", roles: OFFICE },
   { href: "/stock", label: "Stock", roles: OFFICE },
+  { href: "/receive", label: "Receive Stock", roles: OFFICE },
+  { href: "/expenses", label: "Expenses", roles: OFFICE },
+  { href: "/reports", label: "Reports", roles: OFFICE },
   { href: "/users", label: "Users", roles: ["OWNER"] },
-  { href: "/setup", label: "Setup", roles: ["OWNER"] },
+  { href: "/setup", label: "Setup", roles: OFFICE },
 ];
 
 /** Pages that exist but are not in the menu. */

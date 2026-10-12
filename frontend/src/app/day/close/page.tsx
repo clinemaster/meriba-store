@@ -93,7 +93,9 @@ export default function CloseDayPage() {
         <div className="grid gap-3 sm:grid-cols-3">
           <Stat label="Cash float at start" value={formatTZS(f.opening_float)} />
           <Stat label="Cash from sales" value={formatTZS(f.cash_sales)} />
-          <Stat label="Cash that should be there" value={formatTZS(f.expected_cash)} note="Float + cash sales" strong />
+          {Number(f.cash_refunds) > 0 && <Stat label="Cash refunds paid out" value={`− ${formatTZS(f.cash_refunds)}`} note="Given back to customers" />}
+          {Number(f.cash_paid_out) > 0 && <Stat label="Cash taken for expenses" value={`− ${formatTZS(f.cash_paid_out)}`} note="Recorded by the Accountant or Owner" />}
+          <Stat label="Cash that should be there" value={formatTZS(f.expected_cash)} note="Float + cash sales − cash paid out" strong />
         </div>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <Field label="Cash you counted (TZS)" hint="Count all notes and coins in the drawer, including the float.">

@@ -23,6 +23,10 @@ export default function ClosingPage() {
   const [ticked, setTicked] = useState<number[]>([]);
   const [note, setNote] = useState("");
   const [closing, setClosing] = useState<Shift | null>(null);
+  const [correcting, setCorrecting] = useState<Day | null>(null);
+  const [corrAmount, setCorrAmount] = useState("");
+  const [corrDirection, setCorrDirection] = useState<"down" | "up">("down");
+  const [corrKey, setCorrKey] = useState("");
   const [counted, setCounted] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -41,6 +45,8 @@ export default function ClosingPage() {
       await action();
       setReview(null);
       setClosing(null);
+      setCorrecting(null);
+      setCorrAmount("");
       setNote("");
       setCounted("");
       setTicked([]);
@@ -67,6 +73,7 @@ export default function ClosingPage() {
               <tr><td>Opening cumulative sales balance</td><td className="num">{formatTZS(figures.opening_cumulative_sales)}</td></tr>
               <tr><td>Gross sales today</td><td className="num">{formatTZS(figures.gross_sales)}</td></tr>
               <tr><td>Less cancelled sales</td><td className="num">− {formatTZS(figures.voids)}</td></tr>
+              <tr><td>Less refunds given today</td><td className="num">− {formatTZS(figures.refunds)}</td></tr>
               <tr><td className="font-semibold">Net sales today (so far)</td><td className="num font-semibold">{formatTZS(figures.net_sales)}</td></tr>
               <tr><td className="font-semibold">Cumulative sales balance (so far)</td><td className="num font-semibold">{formatTZS(figures.closing_cumulative_sales)}</td></tr>
             </tbody>
@@ -116,7 +123,7 @@ export default function ClosingPage() {
           <p className="text-slate-600">No business days yet.</p>
         ) : (
           <table className="table">
-            <thead><tr><th>Business day</th><th className="num">Opening balance</th><th className="num">Gross sales</th><th className="num">Cancelled</th><th className="num">Net sales</th><th className="num">Closing balance</th><th>Status</th></tr></thead>
+            <thead><tr><th>Business day</th><th className="num">Opening balance</th><th className="num">Gross sales</th><th className="num">Cancelled</th><th className="num">Refunds</th><th className="num">Corrections</th><th className="num">Net sales</th><th className="num">Closing balance</th><th>Status</th><th /></tr></thead>
             <tbody>
               {days.data!.results.map((d) => (
                 <tr key={d.id}>
@@ -124,9 +131,11 @@ export default function ClosingPage() {
                   <td className="num">{formatTZS(d.opening_cumulative_sales)}</td>
                   <td className="num">{d.status === "OPEN" ? "—" : formatTZS(d.gross_sales)}</td>
                   <td className="num">{d.status === "OPEN" ? "—" : formatTZS(d.voids)}</td>
+                  <td className="num">{d.status === "OPEN" ? "—" : formatTZS(d.refunds)}</td>
+                  <td className="num">{Number(d.adjustments) === 0 ? "—" : formatTZS(d.adjustments)}</td>
                   <td className="num">{d.status === "OPEN" ? "—" : formatTZS(d.net_sales)}</td>
                   <td className="num font-semibold">{d.closing_cumulative_sales === null ? "—" : formatTZS(d.closing_cumulative_sales)}</td>
-                  <td><StatusBadge status={d.status} label={d.status_label} /></td>
++
                 </tr>
               ))}
             </tbody>
@@ -139,7 +148,9 @@ export default function ClosingPage() {
           <table className="table mb-3">
             <tbody>
               <tr><td>Sales</td><td className="num">{formatTZS(review.sales_total)}</td></tr>
-              <tr><td>Cash expected (float {formatTZS(review.opening_float)} + cash sales)</td><td className="num">{formatTZS(review.expected_cash)}</td></tr>
+              {Number(review.cash_refunds) > 0 && <tr><td>Cash refunds paid from the drawer</td><td className="num">− {formatTZS(review.cash_refunds)}</td></tr>}
+              {Number(review.cash_paid_out) > 0 && <tr><td>Cash expenses paid from the drawer</td><td className="num">− {formatTZS(review.cash_paid_out)}</td></tr>}
+              <tr><td>Cash expected (float {formatTZS(review.opening_float)} + cash sales − cash paid out)</td><td className="num">{formatTZS(review.expected_cash)}</td></tr>
               <tr><td>Cash counted</td><td className="num">{formatTZS(review.counted_cash)}</td></tr>
               <tr><td className="font-semibold">Difference</td><td className="num font-semibold">{varianceText(review.cash_variance)}</td></tr>
             </tbody>
@@ -172,8 +183,57 @@ export default function ClosingPage() {
         </Modal>
       )}
 
-      {closing && (
-        <Modal title={`Close ${closing.cashier_name}'s shift`} onClose={() => setClosing(null)}>
+      {correcting && (
+        <Modal title={`Correct the closed day of ${formatDate(correcting.date)}`} onClose={() => setCorrecting(null)} wide>
+          <Alert kind="warning">
+            Use this only for a formal accounting correction. For a normal customer refund, use “Refund items” on the sale instead; that is recorded on today&apos;s day and leaves closed days alone.
+          </Alert>
+          <table className="table my-3">
+            <tbody>
+              <tr><td>Net sales as closed</td><td className="num">{formatTZS(correcting.net_sales)}</td></tr>
+              <tr><td>Closing cumulative balance as closed</td><td className="num">{formatTZS(correcting.closing_cumulative_sales)}</td></tr>
+            </tbody>
+          </table>
+          {correcting.corrections.length > 0 && (
+            <div className="mb-3 text-sm">
+              <div className="font-semibold">Earlier corrections to this day</div>
+              {correcting.corrections.map((c) => (
+                <div key={c.id}>{formatDate(c.created_at)} · {formatTZS(c.amount)} · {c.authorised_by} · {c.reason} (closing {formatTZS(c.closing_before)} → {formatTZS(c.closing_after)})</div>
+              ))}
+            </div>
+          )}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <fieldset>
+              <legend className="mb-1 font-semibold">What should happen to net sales?</legend>
+              <label className="flex items-center gap-2 py-1"><input type="radio" className="h-5 w-5" checked={corrDirection === "down"} onChange={() => setCorrDirection("down")} /> Reduce them</label>
+              <label className="flex items-center gap-2 py-1"><input type="radio" className="h-5 w-5" checked={corrDirection === "up"} onChange={() => setCorrDirection("up")} /> Increase them</label>
+            </fieldset>
+            <Field label="By how much (TZS)?">{(p) => <input {...p} className="input" inputMode="numeric" value={corrAmount} onChange={(e) => setCorrAmount(e.target.value)} />}</Field>
+          </div>
+          <div className="mt-3">
+            <Field label="Reason" hint="Explain clearly what was wrong. This is kept permanently with your name.">
+              {(p) => <textarea {...p} className="input" rows={2} maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} />}
+            </Field>
+          </div>
+          {toCents(corrAmount) > 0 && (
+            <p className="mt-3 font-semibold">
+              New closing balance for this day: {formatTZS(toCents(correcting.closing_cumulative_sales) + (corrDirection === "down" ? -1 : 1) * toCents(corrAmount), true)}.
+              Every later day&apos;s opening and closing balance will be recalculated by the same amount.
+            </p>
+          )}
+          {problem && <div className="mt-3"><Alert kind="error">{problem}</Alert></div>}
+          <div className="mt-4 flex gap-3">
+            <button className="btn-danger" disabled={busy || toCents(corrAmount) <= 0 || note.trim().length < 10}
+              onClick={() => run(() => api(`/days/${correcting.id}/corrections/`, { method: "POST", body: {
+                request_key: corrKey, reason: note, amount: centsToApi((corrDirection === "down" ? -1 : 1) * toCents(corrAmount)) } }))}>
+              {busy ? "Saving…" : "Record this correction"}
+            </button>
+            <button className="btn-secondary" onClick={() => setCorrecting(null)}>Cancel</button>
+          </div>
+        </Modal>
+      )}
+
+      {closing && (        <Modal title={`Close ${closing.cashier_name}'s shift`} onClose={() => setClosing(null)}>
           <p className="mb-3 text-slate-700">Use this only when the cashier cannot close their own shift. Your name is recorded as the person who closed it.</p>
           <div className="space-y-3">
             <Field label="Cash counted in the drawer (TZS)">{(p) => <input {...p} className="input" inputMode="numeric" value={counted} onChange={(e) => setCounted(e.target.value)} autoFocus />}</Field>

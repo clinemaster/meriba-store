@@ -6,7 +6,7 @@ import { Alert, Field, PageTitle, Spinner } from "@/components/ui";
 import { api, errorMessage, type Page } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { formatDate, formatQty, formatTime } from "@/lib/money";
-import type { Product, ShopSettings } from "@/lib/types";
+import type { Product, SetupStatus, ShopSettings } from "@/lib/types";
 import { useLoad } from "@/lib/useLoad";
 
 type Movement = {
@@ -19,6 +19,7 @@ export default function StockPage() {
   const shop = useLoad<ShopSettings>("/settings/");
   const products = useLoad<Page<Product>>("/products/?page_size=500&active=true");
   const movements = useLoad<Page<Movement>>("/stock/movements/?page_size=30");
+  const setup = useLoad<SetupStatus>("/setup/status/");
   const [counts, setCounts] = useState<Record<number, string>>({});
   const [reason, setReason] = useState("");
   const [filter, setFilter] = useState("");
@@ -66,17 +67,18 @@ export default function StockPage() {
   }
 
   if (shop.loading || (products.loading && !products.data)) return <Spinner />;
-  const ownerOnly = opening && user?.role !== "OWNER";
+  const locked = opening && (setup.data?.opening_stock_confirmed ?? false);
+  // Opening counts can be entered and corrected until the Owner approves them.
 
   return (
     <div className="space-y-6">
       <PageTitle
         title={opening ? "Opening Stock Count" : "Stock"}
         help={opening
-          ? "Before the shop goes live, count every product on the shelves and in the store room and type the quantity here. Only type what was physically counted. Each product's opening stock can be entered once."
+          ? "Before the shop goes live, count every product on the shelves and in the store room and type the quantity here. Only type what was physically counted. You can correct a count until the Owner approves the opening stock on the Setup page."
           : "Stock goes down automatically with every sale. If a physical count is different, type the counted quantity and the reason. Every change is recorded with your name."}
       />
-      {ownerOnly && <Alert kind="info">Only the Owner can enter opening stock.</Alert>}
+      {locked && <Alert kind="info">The Owner has approved the opening stock, so it is locked. {user?.role === "OWNER" ? "Unlock it on the Setup page if a count is wrong." : "Ask the Owner to unlock it if a count is wrong."}</Alert>}
       {saved && <Alert kind="success">{saved}</Alert>}
       {problem && <Alert kind="error">{problem}</Alert>}
 
@@ -93,7 +95,7 @@ export default function StockPage() {
               <thead className="sticky top-0 bg-white"><tr><th>Product</th><th>Counted by</th><th className="num">In the system now</th><th className="w-44">Quantity counted</th></tr></thead>
               <tbody>
                 {rows.map((p) => {
-                  const done = opening && Number(p.stock_on_hand) > 0;
+                  const done = false;
                   return (
                     <tr key={p.id}>
                       <td><span className="font-semibold">{p.name}</span> {p.package_size}</td>
@@ -101,7 +103,7 @@ export default function StockPage() {
                       <td className="num">{formatQty(p.stock_on_hand)}</td>
                       <td>
                         {done ? <span className="text-slate-600">✔ Entered</span> : (
-                          <input aria-label={`Quantity counted for ${p.name} ${p.package_size}`} className="input min-h-[2.5rem]" inputMode="numeric" disabled={ownerOnly}
+                          <input aria-label={`Quantity counted for ${p.name} ${p.package_size}`} className="input min-h-[2.5rem]" inputMode="numeric" disabled={locked}
                             value={counts[p.id] ?? ""} onChange={(e) => setCounts((c) => ({ ...c, [p.id]: e.target.value.replace(/[^\d]/g, "") }))} />
                         )}
                       </td>
@@ -113,7 +115,7 @@ export default function StockPage() {
           )}
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <button className="btn-primary" disabled={busy || changed.length === 0 || ownerOnly} onClick={save}>
+          <button className="btn-primary" disabled={busy || changed.length === 0 || locked} onClick={save}>
             {busy ? "Saving…" : changed.length === 0 ? "Type a counted quantity to save" : `Save ${changed.length} counted quantit${changed.length === 1 ? "y" : "ies"}`}
           </button>
           <span className="text-sm text-slate-600">Rows you leave empty are not changed.</span>

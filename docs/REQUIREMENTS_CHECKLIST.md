@@ -13,7 +13,7 @@ Last updated: 12 Oct 2026.
 | §1.1, §5, §10 say "inspect and reuse an existing project"; the master prompt says build new | Greenfield, as the master prompt instructs. The existing `meriba` PostgreSQL database on this computer was **not touched**; this project uses a new database `meriba_lsms` |
 | §2 lists five roles (Owner, Manager, Cashier, Stock Controller, Auditor); the later section and master prompt define three | Three roles. Manager and Stock Controller duties fall to Accountant/Owner. A read-only Auditor role is not built |
 | §3.14 names worksheets that the supplied workbook does not contain | Recorded as question X1 in [OPEN_DECISIONS.md](OPEN_DECISIONS.md); nothing imported |
-| "Expenses" is required by the master prompt and the role table but has no functional requirements in the SRS | Will be built as a simple dated expense record (Phase 7); it will not feed the cumulative sales balance |
+| "Expenses" is required by the master prompt and the role table but has no functional requirements in the SRS | Built as a dated expense record. It never feeds the cumulative sales balance; cash paid from a drawer lowers that drawer's expected cash |
 
 ## Functional requirements
 
@@ -38,7 +38,7 @@ Last updated: 12 Oct 2026.
 ### 3.3 Products and units
 | ID | Status | Notes |
 |---|---|---|
-| FR-PROD-01 Product fields | 🟡 | Name, code, barcode, category, brand, size, unit, price, cost, active. Supplier link comes with purchasing |
+| FR-PROD-01 Product fields | 🟡 | Name, code, barcode, category, brand, size, unit, price, cost, active. Suppliers are linked to deliveries, not to products |
 | FR-PROD-02 Search | ✅ | Name, code, barcode, category, size |
 | FR-PROD-03 No merging of similar names | ✅ | Nothing is merged automatically |
 | FR-PROD-04/05 Verified pack conversions; block unverified | ✅ | API only; no screen yet (decision D3: not used at go-live) |
@@ -55,7 +55,7 @@ Last updated: 12 Oct 2026.
 | FR-POS-09 What a sale stores | ✅ | |
 | FR-POS-10 Sale + stock commit together | ✅ | AT-09 |
 | FR-POS-11 Duplicates and concurrent sales | ✅ | AT-07, AT-08 with real simultaneous requests |
-| FR-POS-12 Completed sales preserved | 🟡 | Void ✅. Returns/refunds ⬜ |
+| FR-POS-12 Completed sales preserved | ✅ | Void and refund workflows; nothing is deleted |
 
 ### 3.5 Payments
 | ID | Status | Notes |
@@ -69,20 +69,21 @@ Last updated: 12 Oct 2026.
 ### 3.6 Stock ledger
 | ID | Status | Notes |
 |---|---|---|
-| FR-STK-01..04, 08, 09 | 🟡 | Sale, void, opening, adjustment movements ✅. Purchase receipts and returns ⬜ |
+| FR-STK-01..04, 08, 09 | ✅ | Sale, void, opening, adjustment, delivery and return movements |
 | FR-STK-05 Snapshots separate from movements | ➖ | No snapshot import yet |
 | FR-STK-06 Conversions to base units | ✅ | AT-06 |
 | FR-STK-07 Stock views refresh | ✅ | |
-| FR-STK-10 Daily per-product balance record | ⬜ | Ledger has every movement with business date; the daily summary table/report is Phase 6b |
-| FR-STK-11 Opening stock from an authorised count | ✅ | Owner only, before go-live, once per product |
-| FR-STK-12/13 Carry-forward: stock and money, kept separate | 🟡 | Money ✅ (AT-SALES-01..04). Stock carries forward naturally as a running balance; per-day report ⬜ |
-| FR-STK-14 Finalise / reopen a day | 🟡 | Finalise + lock ✅. Reopen with recalculation ⬜ |
+| FR-STK-10 Daily per-product balance record | 🟡 | Provided as a report worked out from the ledger for any dates (opening, received, sold, returned, adjusted, closing). Not stored as a separate table; transfers do not exist (one branch) |
+| FR-STK-11 Opening stock from an authorised count | ✅ | Owner or Accountant enters and corrects the count; only the Owner approves and locks it (decision D8) |
+| FR-STK-12/13 Carry-forward: stock and money, kept separate | ✅ | Money: AT-SALES-01..05. Stock: AT-STK-01..03 |
+| FR-STK-14 Finalise / reopen a day | 🟡 | Finalise + lock ✅. Owner correction of a closed day with reason, audit and recalculation of later days ✅. Reopening a day to add sales is not offered (refunds and corrections cover it) |
 | FR-STK-15 No duplicate posting | ✅ | Database constraint + tests |
-| FR-STK-16 Reports | 🟡 | Cumulative sales balance history ✅. Per-product inventory report ⬜ |
+| FR-STK-16 Reports | ✅ | "Stock movement by product" and "Daily sales and cumulative balance" reports |
 
-### 3.7 Purchasing and receiving — ⬜ (Phase 7)
+### 3.7 Purchasing and receiving — 🟡
+Receiving a delivery (FR-PUR-02, 03, 05) ✅: deliberate confirmed step, stock movement linked to the delivery, supplier/invoice/cost optional and never invented, safe to retry. Draft purchase orders (FR-PUR-01) and matching a delivery against an order (FR-PUR-04) ⬜.
 ### 3.8 Low stock and reordering — 🟡
-Status (In stock / Low / Out) shown on products and the sale screen ✅ (AT-03). Reorder suggestions, alerts list, draft orders ⬜.
+Status (In stock / Low / Out) on products and the sale screen ✅ (AT-03). Low-stock report with suggested order quantity, never negative ✅ (FR-LOW-04, 07 except last movement date). Per-branch thresholds, notifications and draft purchase orders ⬜.
 
 ### 3.9 Stock counts and adjustments
 | ID | Status | Notes |
@@ -91,28 +92,28 @@ Status (In stock / Low / Out) shown on products and the sale screen ✅ (AT-03).
 | FR-ADJ-02 Approval thresholds | ⬜ | Today: Owner/Accountant may adjust; no second approval |
 
 ### 3.10 Returns, voids, refunds
-Void (cancel a sale the same shift) ✅ with reason, stock restored once, audit. Returns/refunds for earlier days ⬜ (Q3).
+Void ✅. Refunds/returns ✅ (FR-RET-01..05): linked to the original sale and line, reason, user, time; resalable items go back to stock, damaged ones do not; cannot be processed twice or exceed what was sold; recorded on the current open day (decision D6).
 
 ### 3.11 Shifts and reconciliation
 | ID | Status | Notes |
 |---|---|---|
 | FR-REC-01..03 Open with float; link sales; closing count | ✅ | |
-| FR-REC-04 Expected cash formula | 🟡 | Float + cash sales ✅ (AT-11..13). Cash refunds, cash in/out ⬜ |
+| FR-REC-04 Expected cash formula | 🟡 | Float + cash sales − cash refunds − cash paid out for expenses ✅. "Authorised cash received" (cash put into the drawer mid-shift) ⬜ |
 | FR-REC-05/06 Non-cash kept out of cash, checked separately | ✅ | AT-14 |
 | FR-REC-07/08 Variance, tolerance, statuses | ✅ | |
 | FR-REC-09/10 Not approved until payments checked; review with notes | ✅ | |
-| FR-REC-11 Approved closings protected | 🟡 | Locked ✅. Correction workflow ⬜ |
+| FR-REC-11 Approved closings protected | ✅ | Locked; day figures corrected only through the Owner's audited correction |
 | FR-REC-12 Separation of duties | ✅ | Cannot approve your own shift |
-| FR-REC-13 Reports | 🟡 | Shift list on screen; filters and export ⬜ |
+| FR-REC-13 Reports | 🟡 | Closing report by date with CSV export ✅. Filters by cashier/status on the report ⬜ |
 
 ### 3.12 Reports — 🟡
-On screen today: day's sales list, shift list, cumulative balance history, latest stock movements. ⬜ Sales by product/cashier/date range, payment summary, stock on hand report, low stock, valuation, fast/slow movers, CSV/Excel export.
+Eleven reports, each with date filters where relevant and CSV export: daily sales and cumulative balance, sales by product, sales by cashier, payment methods, daily closing and cash reconciliation, stock on hand (with value at cost where a cost exists), low stock, stock movement by product, stock received, expenses, and a sales/purchases/expenses summary. All Owner/Accountant only. ⬜ Sales by category, fast/slow movers, a profit report (purchase costs are not yet reliable enough), filters by product/cashier within a report.
 
 ### 3.13 Audit — 🟡
 Recording ✅ (FR-AUD-01..04) and API ✅. Audit history screen ⬜.
 
 ### 3.14 Excel import — ⬜ (Phase 8, blocked on X1–X9)
-Workbook has been inspected read-only; findings are in [OPEN_DECISIONS.md](OPEN_DECISIONS.md).
+Workbook has been inspected read-only; findings are in [OPEN_DECISIONS.md](OPEN_DECISIONS.md). Per decision D7 it is kept separate from the live opening balance.
 
 ## Cumulative monetary sales balance (SRS clarification, master prompt §7)
 | Requirement | Status |
@@ -123,7 +124,9 @@ Workbook has been inspected read-only; findings are in [OPEN_DECISIONS.md](OPEN_
 | A closing balance cannot be carried forward twice | ✅ |
 | Kept separate from cash, float, variance and stock | ✅ |
 | Finalised days locked against edits | ✅ |
-| Authorised correction of a finalised day with recalculation (AT-SALES-05) | ⬜ |
+| Authorised correction of a finalised day with recalculation (AT-SALES-05) | ✅ |
+| Opening balance must be entered and approved by the Owner with a cutover date; zero only as a confirmed new baseline (D7) | ✅ |
+| Refunds recorded on the current day; closed days untouched (D6) | ✅ |
 
 ## Usability section
 | Requirement | Status |
@@ -141,16 +144,17 @@ Workbook has been inspected read-only; findings are in [OPEN_DECISIONS.md](OPEN_
 | Test | Status | Where |
 |---|---|---|
 | AT-01..09 | ✅ | `test_sales.py`, `test_concurrency.py` |
-| AT-10 Return | ⬜ | |
+| AT-10 Return | ✅ | `test_backoffice.py` |
 | AT-11..14 | ✅ | `test_day_closing.py`, `test_sales.py` |
 | AT-15 Credit sale | ⏸ | |
 | AT-16, AT-17 Import | ⬜ | |
 | AT-18 Permissions | ✅ | `test_permissions.py` |
-| AT-STK-01..03 (100 + 20 − 45 = 75 …) | ⬜ | Needs stock receiving |
-| AT-STK-04 | 🟡 | Sale side ✅; receipt side ⬜ |
-| AT-STK-05, AT-STK-06 | ⬜ | |
+| AT-STK-01..03 (100 + 20 − 45 = 75 …) | ✅ | `test_backoffice.py` |
+| AT-STK-04 | ✅ | Sale and delivery retries |
+| AT-STK-05 | 🟡 | Money side ✅ (correction audited, later days recalculated). Stock side: ledger check in the stock report ✅; no "finalised stock day" to correct |
+| AT-STK-06 | ⬜ | Needs the importer |
 | AT-SALES-01..04 | ✅ | |
-| AT-SALES-05 | ⬜ | |
+| AT-SALES-05 | ✅ | `test_backoffice.py` |
 | AT-UX-01 | 🟡 | Needs a trial with a real first-time user |
 | AT-UX-02..07 | ✅ | |
 
@@ -160,10 +164,10 @@ Workbook has been inspected read-only; findings are in [OPEN_DECISIONS.md](OPEN_
 | 1 Requirements and architecture | ✅ |
 | 2 Project foundation | ✅ |
 | 3 Authentication and roles | ✅ |
-| 4 Products and inventory core | 🟡 receiving, daily stock report outstanding |
+| 4 Products and inventory core | ✅ |
 | 5 Cashier sales workflow | ✅ |
-| 6 Daily closing and cumulative balance | 🟡 reopen/correction outstanding |
-| 7 Accountant and Owner functions | 🟡 users ✅; purchases, expenses, reports, settings screen, audit screen ⬜ |
+| 6 Daily closing and cumulative balance | ✅ |
+| 7 Accountant and Owner functions | 🟡 users, refunds, receiving, expenses, reports ✅; purchase orders, settings screen, payment-method screen, audit-history screen ⬜ (their APIs exist) |
 | 8 Historical data migration | ⬜ |
 | 9 UI refinement and testing | ⬜ |
 | 10 Deployment preparation | 🟡 documented; not yet rehearsed on the shop computer |

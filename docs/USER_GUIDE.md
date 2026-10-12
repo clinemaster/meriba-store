@@ -74,6 +74,34 @@ This is a running total of sales — it is **not** cash, profit or stock.
 Only possible while that cashier's shift is still open. You must give a reason. The items go back into stock,
 the amount comes off the day's sales, and the sale stays on record marked "Cancelled".
 
+### Refund or return — **Today's Sales → choose the day → View → Refund items**
+Use this when a customer brings something back, including for a sale from an earlier, closed day.
+1. Type how many of each item are coming back. Tick **Damaged** if the item cannot go back on the shelf.
+2. Choose how the money is given back. Cash comes out of the open cashier's drawer and lowers the cash expected at closing.
+3. Write the reason and press **Refund**.
+
+The refund is recorded on **today's** business day and linked to the original sale. The day the sale was made is
+never changed. A business day must be open to record a refund.
+
+### Receive a delivery — **Receive Stock**
+1. Choose the supplier and type the invoice number, if you have them. Leave them empty if you do not; never guess.
+2. Find each product, type the quantity that actually arrived and, if known, the cost for one.
+3. Press **Save delivery**. Stock goes up immediately. A saved delivery cannot be edited; fix a mistake with a stock adjustment.
+
+### Expenses — **Expenses**
+Record money spent running the shop. If cash was taken from a cashier's drawer, choose that drawer so the closing
+count still agrees. Expenses never reduce the cumulative sales balance. A wrong expense is cancelled with a reason, not deleted.
+
+### Reports — **Reports**
+Choose a report and the dates. **Download for Excel (CSV)** saves the same figures as a file.
+Available: daily sales and cumulative balance, sales by product, sales by cashier, payment methods, daily closing and
+cash reconciliation, stock on hand, low stock, stock movement by product, stock received, expenses, and a
+sales/purchases/expenses summary.
+
+### Before go-live — **Setup** and **Stock**
+You can enter and correct the opening stock count, and prepare the opening cumulative sales balance with its cutover
+date and how you verified it. Only the Owner can approve them.
+
 ### Products and stock
 - **Products**: add a product, change a price (you will be asked to confirm), or switch a product off.
   Products are never deleted.
@@ -89,11 +117,13 @@ You can do everything above, plus:
 ### First-time setup — **Setup**
 Work through the steps; each shows *Done* or *Not done yet*.
 1. **Add your products and selling prices** (Products).
-2. **Opening stock** (Stock): count every product physically and type the quantities.
-   Then return to Setup and press **I have entered all the counted stock**.
+2. **Opening stock** (Stock): count every product physically and type the quantities (the Accountant can do this
+   for you). Check it, then on Setup press **Approve the opening stock**. This locks it; **Unlock** lets you fix a count.
 3. **Create at least one cashier account** (Users).
-4. **Go live**: type the opening cumulative sales balance (leave `0` unless you have an approved figure),
-   tick the confirmation and press **Start live selling**.
+4. **Opening cumulative sales balance**: type the verified running total of sales as of your cutover date, the date,
+   and how it was verified. No figure is filled in for you. Type `0` only if cumulative tracking is truly starting
+   fresh; you will be asked to confirm that separately.
+5. **Approve and go live**: tick the confirmation and press **Approve and start live selling**.
 
 Until you go live, nobody can start a day or sell. The opening figures cannot be changed afterwards
 except through recorded corrections.
@@ -107,6 +137,13 @@ except through recorded corrections.
 
 ---
 
+### Correct a closed day — **Daily Closing → balance history → Correct…**
+For formal accounting corrections only; a normal customer refund should use **Refund items**. Choose whether net sales
+go down or up, the amount and a clear reason. The original figures are kept, your name is recorded, and every later
+day's opening and closing balance is recalculated.
+
+---
+
 ## Not available yet
-Receiving stock from suppliers, purchases and expenses, returns after a day is closed, reopening a closed day,
-printed/exported reports, importing the old Excel records. See `REQUIREMENTS_CHECKLIST.md`.
+Purchase orders, screens for shop settings, payment methods and audit history, reopening a closed day to add sales,
+importing the old Excel records. See `REQUIREMENTS_CHECKLIST.md`.

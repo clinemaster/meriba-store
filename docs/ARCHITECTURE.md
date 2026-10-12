@@ -28,10 +28,12 @@ backend/
   catalog/     categories, products, extra selling units
   inventory/   stock balances, the stock ledger, opening stock, adjustments
   trading/     business days, cashier shifts, cash count, cumulative sales balance
-  sales/       payment methods, sales, sale lines, payments, void
+  sales/       payment methods, sales, sale lines, payments, void, refunds
+  finance/     suppliers, deliveries (receiving stock), expenses
+  reports/     the eleven reports and CSV export
   tests/       automated tests (run against real PostgreSQL)
 frontend/
-  src/app/         one folder per screen (login, sale, sales, day/start, day/close, closing, products, stock, users, setup)
+  src/app/         one folder per screen (login, sale, sales, day/start, day/close, closing, products, stock, receive, expenses, reports, users, setup)
   src/components/  shared pieces (page frame + menu, buttons, messages, receipt)
   src/lib/         API helper, money maths, sign-in state, menu rules, types
 docs/
@@ -92,6 +94,10 @@ Versioned under `/api/v1/`. OpenAPI schema at `/api/v1/schema/`, Swagger page at
 | Stock | `stock/opening/`, `stock/opening/confirm/`, `stock/adjustments/`, `stock/movements/` |
 | Day | `day/current/`, `day/start/`, `days/`, `shifts/`, `shifts/{id}/`, `shifts/{id}/close/`, `shifts/{id}/review/` |
 | Sales | `payment-methods/`, `sales/`, `sales/{id}/`, `sales/{id}/void/` |
+| Refunds and corrections | `sales/{id}/refund/`, `refunds/`, `days/{id}/corrections/` |
+| Purchasing and expenses | `suppliers/`, `stock/receipts/`, `expenses/`, `expenses/{id}/void/`, `expenses/categories/` |
+| Reports | `reports/`, `reports/{name}/` (add `?download=csv` for a file) |
+| Setup | `setup/opening-balance/` (prepare), `setup/go-live/` (Owner approval) |
 | Other | `audit-log/`, `health/` |
 
 ## Permission matrix (as built)
@@ -100,6 +106,10 @@ Versioned under `/api/v1/`. OpenAPI schema at `/api/v1/schema/`, Swagger page at
 |---|---|---|---|
 | Start day, sell, close own shift, see own sales | ✔ | ✔ | ✔ |
 | See product cost, other people's sales, stock movements, audit log | ✘ | ✔ | ✔ |
-| Add/edit products and prices, stock adjustments | ✘ | ✔ | ✔ |
-| Cancel a sale, close someone else's shift, review a shift (not own) | ✘ | ✔ | ✔ |
-| Users, settings, payment methods, opening stock, go live, verify pack sizes | ✘ | ✘ | ✔ |
+| Add/edit products and prices, stock adjustments, receive deliveries | ✘ | ✔ | ✔ |
+| Cancel a sale, refund, close someone else's shift, review a shift (not own) | ✘ | ✔ | ✔ |
+| Expenses, all reports and exports | ✘ | ✔ | ✔ |
+| Prepare the opening stock count and the opening balance figure | ✘ | ✔ | ✔ |
+| **Approve** opening stock, **approve** the opening balance, go live | ✘ | ✘ | ✔ |
+| Correct a closed day | ✘ | ✘ | ✔ |
+| Users, settings, payment methods, verify pack sizes | ✘ | ✘ | ✔ |

@@ -15,7 +15,9 @@ and what is still to be built.
 - Stock goes down automatically with each sale, through a ledger that cannot be edited.
 - Cash, mobile money and bank payments, including paying one sale with more than one method.
 - Cumulative monetary sales balance: each day opens with the last closed day's closing balance.
-- Back office: review cashier closings, cancel a sale with a reason, stock corrections, users, audit trail.
+- Back office: review cashier closings, cancel or refund a sale, receive deliveries, expenses, stock corrections, users, audit trail.
+- Refunds are recorded on the current day; closed days change only through an Owner's audited correction.
+- Eleven reports with CSV export.
 
 ## Parts
 

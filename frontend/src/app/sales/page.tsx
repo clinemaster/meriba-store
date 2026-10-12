@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { Receipt } from "@/components/Receipt";
+import { RefundForm } from "@/components/RefundForm";
 import { Alert, Field, Modal, PageTitle, Spinner, StatusBadge } from "@/components/ui";
 import { api, errorMessage, type Page } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -21,12 +22,13 @@ export default function SalesPage() {
   const sales = useLoad<Page<Sale>>(date ? `/sales/?date=${date}&page=${page}` : null);
   const [open, setOpen] = useState<Sale | null>(null);
   const [voiding, setVoiding] = useState(false);
+  const [refunding, setRefunding] = useState(false);
   const [reason, setReason] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   function close() {
-    setOpen(null);
++
     setVoiding(false);
     setReason("");
     setProblem(null);
@@ -96,13 +98,18 @@ export default function SalesPage() {
       </div>
 
       {open && (
-        <Modal title={`Receipt ${open.receipt_number}`} onClose={close}>
+        <Modal title={`Receipt ${open.receipt_number}`} onClose={close} wide={refunding}>
           {open.status === "VOIDED" && (
             <div className="no-print mb-3"><Alert kind="warning">Cancelled by {open.voided_by_name}. Reason: {open.void_reason}</Alert></div>
           )}
+          {(open.refunds ?? []).map((r) => (
+            <div key={r.id} className="no-print mb-3"><Alert kind="info">Refund of {formatTZS(r.total)} by {r.method_name} on {formatDate(r.business_date)} ({r.created_by_name}). Reason: {r.reason}</Alert></div>
+          ))}
           <Receipt sale={open} shop={shop.data} />
           {problem && <div className="no-print mt-3"><Alert kind="error">{problem}</Alert></div>}
-          {voiding ? (
+          {refunding ? (
+            <RefundForm sale={open} onCancel={() => setRefunding(false)} onDone={(updated) => { setOpen(updated); setRefunding(false); sales.reload(); }} />
+          ) : voiding ? (
             <div className="no-print mt-4 space-y-3">
               <Alert kind="warning">Cancelling puts the items back into stock and removes {formatTZS(open.total)} from today&apos;s sales. The sale stays on record as cancelled. This cannot be undone.</Alert>
               <Field label="Reason for cancelling" hint="For example: wrong product entered, customer returned immediately.">
@@ -117,7 +124,12 @@ export default function SalesPage() {
             <div className="no-print mt-4 flex flex-wrap gap-3">
               <button className="btn-primary" onClick={() => window.print()}>Print Receipt</button>
               <button className="btn-secondary" onClick={close}>Close</button>
-              {office && open.status === "COMPLETED" && <button className="btn-danger ml-auto" onClick={() => setVoiding(true)}>Cancel this sale…</button>}
+              {office && open.status === "COMPLETED" && (
+                <span className="ml-auto flex gap-2">
+                  <button className="btn-secondary" onClick={() => { setProblem(null); setRefunding(true); }}>Refund items…</button>
+                  {(open.refunds ?? []).length === 0 && <button className="btn-danger" onClick={() => setVoiding(true)}>Cancel this sale…</button>}
+                </span>
+              )}
             </div>
           )}
         </Modal>
