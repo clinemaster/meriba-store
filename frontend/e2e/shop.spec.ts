@@ -23,6 +23,13 @@ async function signIn(page: Page, username: string, password: string) {
   await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
 }
 
+/** Go to a screen from the menu and wait until that screen is actually showing.
+ *  Without the wait, a check can run against the screen being left, which is still on display for a moment. */
+async function openScreen(page: Page, link: string, heading: string | RegExp) {
+  await page.getByRole("link", { name: link, exact: true }).first().click();
+  await expect(page.getByRole("heading", { level: 1, name: heading })).toBeVisible();
+}
+
 function acceptDialogs(page: Page) {
   page.on("dialog", (dialog) => dialog.accept());
 }
@@ -221,7 +228,7 @@ test("cashier closes the day with the cash count", async ({ page }) => {
 test("owner reviews the closing and reads reports, audit history, settings and help", async ({ page }) => {
   await signIn(page, OWNER.username, OWNER.password);
 
-  await page.getByRole("link", { name: "Daily Closing" }).first().click();
+  await openScreen(page, "Daily Closing", "Daily Closing");
   const shift = page.getByRole("row").filter({ hasText: "Asha Juma" }).first();
   await expect(shift).toContainText("Waiting for payment checks"); // mobile money still to be checked
   await shift.getByRole("button", { name: "Review" }).click();
@@ -233,31 +240,34 @@ test("owner reviews the closing and reads reports, audit history, settings and h
   await expect(page.getByRole("row").filter({ hasText: "Asha Juma" }).first()).toContainText("Reviewed and approved");
   await expect(page.getByRole("row").filter({ hasText: "Closed" }).last()).toContainText("TZS 40,500");
 
-  await page.getByRole("link", { name: "Reports" }).click();
-  await expect(page.getByRole("table")).toContainText("TZS 40,500");
+  await openScreen(page, "Reports", "Reports");
+  await expect(page.getByRole("heading", { level: 2, name: "Daily sales and cumulative balance" })).toBeVisible();
+  await expect(page.getByRole("row").filter({ hasText: "Total" })).toContainText("TZS 40,500");
   await page.getByLabel("Report").selectOption({ label: "Stock movement by product" });
+  await expect(page.getByRole("heading", { level: 2, name: "Stock movement by product" })).toBeVisible();
   const konyagi = page.getByRole("row").filter({ hasText: "Konyagi ndogo" });
   await expect(konyagi).toContainText("71");
   const download = page.waitForEvent("download");
   await page.getByRole("link", { name: /Download for Excel/ }).click();
   expect((await download).suggestedFilename()).toMatch(/^meriba_stock-daily_.*\.csv$/);
 
-  await page.getByRole("link", { name: "Audit History" }).click();
-  await expect(page.getByRole("table")).toContainText("Closed business day");
+  await openScreen(page, "Audit History", "Audit History");
+  await expect(page.getByRole("row").filter({ hasText: "Closed business day" }).first()).toBeVisible();
   await page.getByLabel("Area").selectOption({ label: "Sales, cancellations and refunds" });
-  await expect(page.getByRole("table")).toContainText("Refund of 4,500");
+  await expect(page.getByRole("row").filter({ hasText: "Refund of 4,500" }).first()).toBeVisible();
 
-  await page.getByRole("link", { name: "Settings" }).click();
+  await openScreen(page, "Settings", "Settings");
+  await expect(page.getByLabel("Bottom line of the receipt")).not.toHaveValue(""); // the saved settings have loaded
   await page.getByLabel("Bottom line of the receipt").fill("Asante sana. Karibu tena!");
   await page.getByRole("button", { name: "Save settings" }).click();
   await expect(page.getByText("Settings saved.")).toBeVisible();
 
-  await page.getByRole("link", { name: "Help" }).click();
+  await openScreen(page, "Help", "Help");
   await page.getByText("The two balances, and why they differ").click();
   await expect(page.getByText(/Mobile money and bank payments are sales but are not cash/)).toBeVisible();
 
   // Formal correction of the closed day: original figures kept, new closing balance shown
-  await page.getByRole("link", { name: "Daily Closing" }).first().click();
+  await openScreen(page, "Daily Closing", "Daily Closing");
   const closedDay = page.getByRole("row").filter({ hasText: "Closed" }).last();
   await closedDay.getByRole("button", { name: "Correct…" }).click();
   const correction = page.getByRole("dialog");
