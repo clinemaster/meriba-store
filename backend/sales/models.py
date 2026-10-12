@@ -83,6 +83,49 @@ class SaleItem(AppendOnlyModel):
         ]
 
 
+class Refund(models.Model):
+    """Money given back for a completed sale. Recorded on the business day it happens,
+    linked to the original sale; the original (possibly closed) day is never changed."""
+
+    sale = models.ForeignKey(Sale, on_delete=models.PROTECT, related_name="refunds")
+    business_day = models.ForeignKey("trading.BusinessDay", on_delete=models.PROTECT, related_name="refund_records")
+    # Set when cash left a cashier's drawer; it lowers that shift's expected cash.
+    shift = models.ForeignKey("trading.CashierShift", null=True, blank=True, on_delete=models.PROTECT, related_name="refund_records")
+    method = models.ForeignKey(PaymentMethod, on_delete=models.PROTECT, related_name="+")
+    total = models.DecimalField(max_digits=16, decimal_places=2)
+    reason = models.CharField(max_length=300)
+    reference = models.CharField(max_length=60, blank=True)
+    request_key = models.UUIDField(unique=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-id"]
+        constraints = [
+            models.CheckConstraint(condition=Q(total__gt=0), name="refund_total_positive"),
+            models.CheckConstraint(condition=~Q(reason=""), name="refund_needs_reason"),
+        ]
+
+    def delete(self, *args, **kwargs):
+        raise ImmutableError("Refunds cannot be deleted.")
+
+
+class RefundItem(AppendOnlyModel):
+    refund = models.ForeignKey(Refund, on_delete=models.PROTECT, related_name="items")
+    sale_item = models.ForeignKey(SaleItem, on_delete=models.PROTECT, related_name="refund_items")
+    quantity = models.DecimalField(max_digits=12, decimal_places=3)
+    quantity_base = models.DecimalField(max_digits=14, decimal_places=3)
+    amount = models.DecimalField(max_digits=16, decimal_places=2)
+    # False = damaged / not fit for sale: money is refunded but stock is not increased.
+    restocked = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["refund", "sale_item"], name="refund_item_once_per_line"),
+            models.CheckConstraint(condition=Q(quantity__gt=0) & Q(amount__gt=0), name="refund_item_positive"),
+        ]
+
+
 class Payment(models.Model):
     """How part of a sale was actually paid. `amount` is what was kept (cash handed over minus change)."""
 

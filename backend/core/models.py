@@ -47,6 +47,13 @@ class BusinessSettings(models.Model):
     cash_variance_tolerance = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     # Cumulative monetary sales balance the first business day starts from (SRS: zero unless approved).
     opening_cumulative_sales = models.DecimalField(max_digits=16, decimal_places=2, default=Decimal("0"))
+    # Before go-live the Owner or Accountant may prepare a figure; only the Owner's go-live approves it.
+    prepared_opening_cumulative_sales = models.DecimalField(max_digits=16, decimal_places=2, null=True, blank=True)
+    opening_balance_as_of = models.DateField(null=True, blank=True, help_text="Cutover date the opening balance is correct for")
+    opening_balance_note = models.CharField(max_length=300, blank=True)
+    opening_balance_prepared_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
     opening_stock_confirmed_at = models.DateTimeField(null=True, blank=True)
     opening_stock_confirmed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"

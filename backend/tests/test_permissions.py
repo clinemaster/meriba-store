@@ -40,6 +40,15 @@ CASHIER_FORBIDDEN = [
     ("post", "/api/v1/shifts/1/review/", {}),
     ("post", "/api/v1/sales/1/void/", {"reason": "because I can"}),
     ("get", "/api/v1/schema/", None),
+    ("post", "/api/v1/sales/1/refund/", {}),
+    ("get", "/api/v1/refunds/", None),
+    ("post", "/api/v1/days/1/corrections/", {}),
+    ("get", "/api/v1/suppliers/", None),
+    ("post", "/api/v1/stock/receipts/", {}),
+    ("get", "/api/v1/expenses/", None),
+    ("get", "/api/v1/reports/", None),
+    ("get", "/api/v1/reports/financial-summary/", None),
+    ("put", "/api/v1/setup/opening-balance/", {}),
 ]
 
 

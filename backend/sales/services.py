@@ -157,10 +157,12 @@ def void_sale(*, sale_id, actor, reason) -> tuple[Sale, bool]:
         raise BusinessRuleError("We could not find that sale.", code="not_found", status_code=404)
     if sale.status == Sale.Status.VOIDED:
         return sale, False
+    if sale.refunds.exists():
+        raise BusinessRuleError("Part of this sale has already been refunded, so it cannot be cancelled as a whole.", code="has_refund")
     day = BusinessDay.objects.select_for_update().get(pk=sale.business_day_id)
     if day.status != BusinessDay.Status.OPEN:
         raise BusinessRuleError(
-            f"The day of {day} is closed, so this sale can no longer be cancelled here.", code="day_closed"
+            f"The day of {day} is closed, so this sale can no longer be cancelled. Use a refund instead; it is recorded on today's business day.", code="day_closed"
         )
     if CashierShift.objects.get(pk=sale.shift_id).status != CashierShift.Status.OPEN:
         raise BusinessRuleError(
@@ -187,3 +189,95 @@ def void_sale(*, sale_id, actor, reason) -> tuple[Sale, bool]:
     audit(actor, "sale.voided", sale, summary=f"Cancelled sale {sale.receipt_number} ({sale.total:,.0f})", reason=reason,
           before={"status": "COMPLETED"}, after={"status": "VOIDED"})
     return sale, True
+
+
+@transaction.atomic
+def refund_sale(*, sale_id, actor, request_key, lines, method, reason, shift=None, reference=""):
+    """Give money back for items of a completed sale.
+
+    The refund belongs to the business day that is open NOW and is linked to the original sale.
+    The original day, even if closed, is left exactly as it was.
+    `lines` is a list of {"sale_item": SaleItem, "quantity": Decimal, "restock": bool}.
+    """
+    from django.db.models import Sum
+
+    from .models import Refund, RefundItem
+
+    existing = Refund.objects.filter(request_key=request_key).first()
+    if existing:
+        return existing, False
+    reason = (reason or "").strip()
+    if len(reason) < 5:
+        raise _bad("Write the reason for this refund.", "reason_required")
+    if not lines:
+        raise _bad("Choose at least one item to refund.", "no_items")
+
+    sale = Sale.objects.select_for_update().filter(pk=sale_id).first()
+    if sale is None:
+        raise BusinessRuleError("We could not find that sale.", code="not_found", status_code=404)
+    if sale.status != Sale.Status.COMPLETED:
+        raise BusinessRuleError("This sale was cancelled, so there is nothing to refund.", code="sale_voided")
+    day = BusinessDay.objects.select_for_update().filter(branch=sale.branch, status=BusinessDay.Status.OPEN).first()
+    if day is None:
+        raise BusinessRuleError(
+            "No business day is open. A refund is recorded on the open day, so start the day first.", code="no_open_day"
+        )
+    if not method.is_active:
+        raise _bad(f"{method.name} is not accepted at the moment.", "method_inactive")
+    if method.is_cash:
+        open_shifts = list(CashierShift.objects.filter(business_day=day, status=CashierShift.Status.OPEN))
+        if shift is None and len(open_shifts) == 1:
+            shift = open_shifts[0]
+        elif shift is not None:
+            # Re-read now that the day is locked: the shift may have been closed a moment ago.
+            shift = next((s for s in open_shifts if s.pk == shift.pk), None)
+        if shift is None or shift.business_day_id != day.pk or shift.status != CashierShift.Status.OPEN:
+            raise _bad("Choose the open cashier drawer the cash is being taken from.", "shift_required")
+    else:
+        shift = None
+
+    total, rows = ZERO, []
+    for line in lines:
+        item, quantity = line["sale_item"], Decimal(line["quantity"])
+        if item.sale_id != sale.pk:
+            raise _bad("One of the items does not belong to this sale.", "wrong_sale")
+        if quantity <= 0 or quantity != quantity.to_integral_value():
+            raise _bad("Enter a whole quantity greater than zero.", "bad_quantity")
+        already = RefundItem.objects.filter(sale_item=item).aggregate(q=Sum("quantity"))["q"] or Decimal("0")
+        if already + quantity > item.quantity:
+            left = item.quantity - already
+            raise _bad(
+                f"Only {left.normalize():f} of {item.product_name} can still be refunded on this sale.", "over_refund",
+                {"sale_item": item.pk, "refundable": str(left)},
+            )
+        amount = money(quantity * item.unit_price)
+        total += amount
+        rows.append({"item": item, "quantity": quantity, "base": quantity * item.unit_factor, "amount": amount,
+                     "restock": bool(line.get("restock", True))})
+    if len({r["item"].pk for r in rows}) != len(rows):
+        raise _bad("Each item can appear only once in a refund.", "duplicate_item")
+
+    refund = Refund.objects.create(
+        sale=sale, business_day=day, shift=shift, method=method, total=total, reason=reason[:300],
+        reference=(reference or "").strip()[:60], request_key=request_key, created_by=actor,
+    )
+    RefundItem.objects.bulk_create([
+        RefundItem(refund=refund, sale_item=r["item"], quantity=r["quantity"], quantity_base=r["base"],
+                   amount=r["amount"], restocked=r["restock"]) for r in rows
+    ])
+    back: dict[int, dict] = {}
+    for r in rows:
+        if r["restock"]:
+            entry = back.setdefault(r["item"].product_id, {"product": r["item"].product, "qty": Decimal("0")})
+            entry["qty"] += r["base"]
+    for pk in sorted(back):
+        post_movement(
+            branch=sale.branch, product=back[pk]["product"], delta=back[pk]["qty"],
+            movement_type=InventoryMovement.Type.RETURN, source_type="Refund", source_id=refund.pk,
+            user=actor, business_date=day.date, reason=reason,
+        )
+    audit(actor, "sale.refunded", sale, reason=reason,
+          summary=f"Refund of {total:,.0f} on sale {sale.receipt_number} (sold {sale.business_day}), recorded on {day}",
+          after={"refund": refund.pk, "total": total, "method": method.code, "restocked": {str(k): v["qty"] for k, v in back.items()},
+                 "not_restocked": sum(1 for r in rows if not r["restock"])})
+    return refund, True

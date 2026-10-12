@@ -48,7 +48,8 @@ def post_movement(*, branch, product, delta, movement_type, source_type, source_
 def record_count(*, user, kind, reason, request_key, lines):
     """Set products to their counted quantities. `lines` is a list of (product, counted_quantity).
 
-    Opening counts are allowed only before go-live and only for products with no stock history.
+    Opening counts may be entered and corrected (by Owner or Accountant) until the Owner approves
+    them; after approval they are locked and only recorded adjustments can change stock.
     """
     existing = StockAdjustment.objects.filter(request_key=request_key).first()
     if existing:
@@ -62,6 +63,11 @@ def record_count(*, user, kind, reason, request_key, lines):
             "Opening stock can only be entered before the shop goes live. Use a stock adjustment instead.",
             code="already_live",
         )
+    if is_opening and cfg.opening_stock_confirmed_at is not None:
+        raise BusinessRuleError(
+            "The Owner has already approved the opening stock. Ask the Owner to unlock it if a count is wrong.",
+            code="opening_approved",
+        )
     if not is_opening and not cfg.is_live:
         raise BusinessRuleError("Enter opening stock first. Adjustments start after the shop goes live.", code="not_live")
 
@@ -74,11 +80,6 @@ def record_count(*, user, kind, reason, request_key, lines):
         counted = Decimal(counted)
         StockBalance.objects.get_or_create(branch=branch, product=product)
         before = StockBalance.objects.select_for_update().get(branch=branch, product=product).quantity
-        if is_opening and InventoryMovement.objects.filter(branch=branch, product=product).exists():
-            raise BusinessRuleError(
-                f"Opening stock for {product} has already been entered.", code="opening_exists",
-                details={"product": product.pk},
-            )
         StockAdjustmentLine.objects.create(
             adjustment=adjustment, product=product, quantity_before=before, quantity_counted=counted
         )
@@ -97,13 +98,15 @@ def record_count(*, user, kind, reason, request_key, lines):
 
 
 @transaction.atomic
-def confirm_opening_stock(*, user):
+def confirm_opening_stock(*, user, approved=True):
+    """Owner approves the prepared opening count (locking it), or unlocks it again before go-live."""
     cfg = BusinessSettings.objects.select_for_update().get(branch=get_branch())
     if cfg.is_live:
         raise BusinessRuleError("The shop is already live.", code="already_live")
-    counted = InventoryMovement.objects.filter(branch=cfg.branch, movement_type=InventoryMovement.Type.OPENING).count()
-    cfg.opening_stock_confirmed_at = timezone.now()
-    cfg.opening_stock_confirmed_by = user
+    counted = StockBalance.objects.filter(branch=cfg.branch, quantity__gt=0).count()
+    cfg.opening_stock_confirmed_at = timezone.now() if approved else None
+    cfg.opening_stock_confirmed_by = user if approved else None
     cfg.save(update_fields=["opening_stock_confirmed_at", "opening_stock_confirmed_by"])
-    audit(user, "stock.opening_confirmed", cfg, summary=f"Opening stock confirmed ({counted} products with stock)")
+    audit(user, "stock.opening_approved" if approved else "stock.opening_unlocked", cfg,
+          summary=f"Opening stock {'approved' if approved else 'unlocked for correction'} ({counted} products with stock)")
     return cfg

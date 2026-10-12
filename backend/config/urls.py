@@ -12,6 +12,8 @@ api_v1 = [
     path("", include("inventory.urls")),
     path("", include("trading.urls")),
     path("", include("sales.urls")),
+    path("", include("finance.urls")),
+    path("", include("reports.urls")),
     path("schema/", SpectacularAPIView.as_view(), name="schema"),
     path("docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="docs"),
 ]

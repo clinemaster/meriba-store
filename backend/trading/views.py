@@ -3,7 +3,7 @@ from rest_framework import generics, serializers
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.permissions import IsOwnerOrAccountant, IsSignedIn
+from accounts.permissions import IsOwner, IsOwnerOrAccountant, IsSignedIn
 from core.errors import BusinessRuleError
 from core.services import get_branch, get_settings, local_today
 
@@ -20,12 +20,22 @@ def _figures_json(figures: dict) -> dict:
 
 class DaySerializer(serializers.ModelSerializer):
     status_label = serializers.CharField(source="get_status_display", read_only=True)
+    corrections = serializers.SerializerMethodField()
 
     class Meta:
         model = BusinessDay
         fields = [
             "id", "date", "status", "status_label", "opening_cumulative_sales", "gross_sales", "discounts", "voids",
-            "refunds", "net_sales", "closing_cumulative_sales", "opened_at", "closed_at",
+            "refunds", "adjustments", "net_sales", "closing_cumulative_sales", "opened_at", "closed_at", "corrections",
+        ]
+
+    def get_corrections(self, obj) -> list:
+        return [
+            {"id": c.pk, "amount": str(c.amount), "reason": c.reason, "created_at": c.created_at,
+             "authorised_by": c.authorised_by.display_name, "net_sales_before": str(c.net_sales_before),
+             "net_sales_after": str(c.net_sales_after), "closing_before": str(c.closing_before),
+             "closing_after": str(c.closing_after), "sale": c.sale_id}
+            for c in obj.corrections.select_related("authorised_by")
         ]
 
 
@@ -41,7 +51,7 @@ class ShiftSerializer(serializers.ModelSerializer):
         fields = [
             "id", "business_day", "business_date", "cashier", "cashier_name", "status", "status_label",
             "opening_float", "opened_at", "closed_at", "sales_total", "expected_cash", "counted_cash",
-            "cash_variance", "closing_note", "reviewed_by_name", "reviewed_at", "review_note", "payment_totals",
+            "cash_refunds", "cash_paid_out", "cash_variance", "closing_note", "reviewed_by_name", "reviewed_at", "review_note", "payment_totals",
         ]
 
     def get_payment_totals(self, obj) -> list:
@@ -194,3 +204,34 @@ class DayListView(generics.ListAPIView):
         if params.get("date_to"):
             qs = qs.filter(date__lte=params["date_to"])
         return qs
+
+
+class DayCorrectionSerializer(serializers.Serializer):
+    request_key = serializers.UUIDField()
+    amount = serializers.DecimalField(max_digits=16, decimal_places=2)
+    reason = serializers.CharField(max_length=500)
+    sale = serializers.IntegerField(required=False, allow_null=True)
+
+
+class DayCorrectionView(APIView):
+    """Owner only: formally correct a closed day. Later days are recalculated; everything is audited."""
+
+    permission_classes = [IsOwner]
+
+    @extend_schema(request=DayCorrectionSerializer, responses={201: DaySerializer})
+    def post(self, request, pk):
+        from sales.models import Sale
+
+        ser = DayCorrectionSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        data = ser.validated_data
+        sale = None
+        if data.get("sale"):
+            sale = Sale.objects.filter(pk=data["sale"]).first()
+            if sale is None:
+                raise BusinessRuleError("We could not find that sale.", code="not_found", status_code=404)
+        correction, created = services.correct_closed_day(
+            day_id=pk, owner=request.user, amount=data["amount"], reason=data["reason"],
+            request_key=data["request_key"], sale=sale,
+        )
+        return Response(DaySerializer(correction.business_day).data, status=201 if created else 200)

@@ -92,25 +92,73 @@ def setup_steps(branch) -> list[dict]:
 
 
 class SetupStatusView(APIView):
-    permission_classes = [IsOwner]
+    """Owner and Accountant can both follow the setup; only the Owner can approve and go live."""
+
+    permission_classes = [IsOwnerOrAccountant]
 
     @extend_schema(responses={200: dict})
     def get(self, request):
         branch = get_branch()
         cfg = get_settings(branch)
         steps = setup_steps(branch)
+        prepared = cfg.prepared_opening_cumulative_sales
         return Response({
             "is_live": cfg.is_live,
             "went_live_at": cfg.went_live_at,
             "opening_cumulative_sales": str(cfg.opening_cumulative_sales),
+            "prepared_opening_cumulative_sales": None if prepared is None else str(prepared),
+            "opening_balance_as_of": cfg.opening_balance_as_of,
+            "opening_balance_note": cfg.opening_balance_note,
+            "opening_balance_prepared_by": getattr(cfg.opening_balance_prepared_by, "display_name", ""),
+            "opening_stock_confirmed": cfg.opening_stock_confirmed_at is not None,
             "steps": steps,
             "ready_to_go_live": all(s["done"] for s in steps),
         })
 
 
-class GoLiveSerializer(serializers.Serializer):
+class OpeningBalanceSerializer(serializers.Serializer):
     opening_cumulative_sales = serializers.DecimalField(max_digits=16, decimal_places=2, min_value=0)
+    as_of_date = serializers.DateField()
+    note = serializers.CharField(max_length=300, required=False, allow_blank=True, default="")
+
+
+class PrepareOpeningBalanceView(APIView):
+    """Before go-live: record the reconciled opening cumulative sales figure for the Owner to approve.
+
+    Preparing a figure approves nothing. It only takes effect when the Owner goes live with it.
+    """
+
+    permission_classes = [IsOwnerOrAccountant]
+
+    @extend_schema(request=OpeningBalanceSerializer, responses={200: dict})
+    def put(self, request):
+        ser = OpeningBalanceSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        with transaction.atomic():
+            cfg = BusinessSettings.objects.select_for_update().get(branch=get_branch())
+            if cfg.is_live:
+                raise BusinessRuleError("The shop is already live. The opening balance can no longer be changed here.", code="already_live")
+            before = {"amount": cfg.prepared_opening_cumulative_sales, "as_of": cfg.opening_balance_as_of}
+            cfg.prepared_opening_cumulative_sales = money(ser.validated_data["opening_cumulative_sales"])
+            cfg.opening_balance_as_of = ser.validated_data["as_of_date"]
+            cfg.opening_balance_note = ser.validated_data["note"].strip()
+            cfg.opening_balance_prepared_by = request.user
+            cfg.save()
+            audit(request.user, "setup.opening_balance_prepared", cfg, summary="Opening cumulative sales balance prepared for approval",
+                  reason=cfg.opening_balance_note, before=before,
+                  after={"amount": cfg.prepared_opening_cumulative_sales, "as_of": cfg.opening_balance_as_of})
+        return Response({"prepared_opening_cumulative_sales": str(cfg.prepared_opening_cumulative_sales),
+                         "opening_balance_as_of": cfg.opening_balance_as_of})
+
+
+class GoLiveSerializer(serializers.Serializer):
+    # No default on purpose: the Owner must state the figure being approved.
+    opening_cumulative_sales = serializers.DecimalField(max_digits=16, decimal_places=2, min_value=0)
+    as_of_date = serializers.DateField()
+    note = serializers.CharField(max_length=300, required=False, allow_blank=True, default="")
     confirm = serializers.BooleanField()
+    # Zero is accepted only as a deliberate fresh start, never as a stand-in for an unknown history.
+    confirm_new_baseline = serializers.BooleanField(required=False, default=False)
 
 
 class GoLiveView(APIView):
@@ -131,12 +179,24 @@ class GoLiveView(APIView):
             missing = [s["title"] for s in setup_steps(cfg.branch) if not s["done"]]
             if missing:
                 raise BusinessRuleError("Finish the remaining setup steps first.", code="setup_incomplete", details=missing)
-            cfg.opening_cumulative_sales = money(ser.validated_data["opening_cumulative_sales"])
+            amount = money(ser.validated_data["opening_cumulative_sales"])
+            if amount == 0 and not ser.validated_data["confirm_new_baseline"]:
+                raise BusinessRuleError(
+                    "An opening balance of zero means cumulative sales tracking starts fresh from today. "
+                    "Tick the box to confirm this is a new baseline, or enter the verified balance.",
+                    code="zero_needs_confirmation", status_code=400,
+                )
+            cfg.opening_cumulative_sales = amount
+            cfg.opening_balance_as_of = ser.validated_data["as_of_date"]
+            cfg.opening_balance_note = ser.validated_data["note"].strip() or cfg.opening_balance_note
             cfg.went_live_at = timezone.now()
             cfg.went_live_by = request.user
             cfg.save()
-            audit(request.user, "setup.went_live", cfg, summary="Live selling switched on",
-                  after={"opening_cumulative_sales": cfg.opening_cumulative_sales})
+            audit(request.user, "setup.went_live", cfg, summary="Opening balance approved and live selling switched on",
+                  reason=cfg.opening_balance_note,
+                  after={"opening_cumulative_sales": amount, "as_of": cfg.opening_balance_as_of,
+                         "new_baseline": amount == 0, "prepared_figure": cfg.prepared_opening_cumulative_sales,
+                         "prepared_by": getattr(cfg.opening_balance_prepared_by, "username", "")})
         return Response(SettingsSerializer(cfg).data)
 
 

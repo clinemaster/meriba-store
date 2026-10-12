@@ -19,44 +19,91 @@ def not_live(shop):
     shop.cfg.save()
 
 
-def test_opening_stock_is_entered_once_before_go_live(owner, shop, make_product):
+def test_accountant_prepares_opening_stock_and_owner_approves(owner, accountant, cashier, shop, make_product):
     not_live(shop)
     a, b = make_product("A"), make_product("B")
-    client = client_for(owner)
+    prep, boss = client_for(accountant), client_for(owner)
     key = uuid.uuid4()
-    first = client.post("/api/v1/stock/opening/", count_payload([(a, 48), (b, 0)], key), format="json")
-    retry = client.post("/api/v1/stock/opening/", count_payload([(a, 48), (b, 0)], key), format="json")
+    first = prep.post("/api/v1/stock/opening/", count_payload([(a, 48), (b, 0)], key), format="json")
+    retry = prep.post("/api/v1/stock/opening/", count_payload([(a, 48), (b, 0)], key), format="json")
     assert (first.status_code, retry.status_code) == (201, 200) and retry.data["already_saved"] is True
     assert stock_of(a) == 48 and InventoryMovement.objects.filter(movement_type="OPENING").count() == 1
-    twice = client.post("/api/v1/stock/opening/", count_payload([(a, 10)]), format="json")
-    assert twice.status_code == 409 and twice.data["code"] == "opening_exists"
-    assert stock_of(a) == 48
     movement = InventoryMovement.objects.get()
-    assert (movement.user, movement.reason, movement.source_type) == (owner, "Physical count", "StockAdjustment")
+    assert (movement.user, movement.reason, movement.source_type) == (accountant, "Physical count", "StockAdjustment")
+
+    # a miscount can be corrected until the Owner approves; both entries stay in the ledger
+    assert prep.post("/api/v1/stock/opening/", count_payload([(a, 46)], reason="Recount"), format="json").status_code == 201
+    assert stock_of(a) == 46 and InventoryMovement.objects.filter(product=a).count() == 2
+
+    # approving is the Owner's decision alone
+    assert prep.post("/api/v1/stock/opening/confirm/").status_code == 403
+    assert client_for(cashier).post("/api/v1/stock/opening/", count_payload([(a, 1)]), format="json").status_code == 403
+    assert boss.post("/api/v1/stock/opening/confirm/").status_code == 200
+    locked = prep.post("/api/v1/stock/opening/", count_payload([(a, 10)]), format="json")
+    assert locked.status_code == 409 and locked.data["code"] == "opening_approved" and stock_of(a) == 46
+    assert boss.post("/api/v1/stock/opening/confirm/", {"approved": False}, format="json").status_code == 200  # unlock
+    assert prep.post("/api/v1/stock/opening/", count_payload([(a, 47)]), format="json").status_code == 201
+    assert {"stock.opening_approved", "stock.opening_unlocked"} <= set(AuditLog.objects.values_list("action", flat=True))
 
 
-def test_guided_setup_blocks_go_live_until_every_step_is_done(owner, shop, make_user, make_product):
+def go_live_body(amount, **extra):
+    return {"opening_cumulative_sales": amount, "as_of_date": "2026-10-31", "confirm": True} | extra
+
+
+def test_guided_setup_and_owner_approval_of_the_opening_balance(owner, accountant, shop, make_user, make_product):
     not_live(shop)
-    client = client_for(owner)
-    status = client.get("/api/v1/setup/status/").data
+    boss, prep = client_for(owner), client_for(accountant)
+    status = boss.get("/api/v1/setup/status/").data
     assert status["ready_to_go_live"] is False and status["is_live"] is False
-    early = client.post("/api/v1/setup/go-live/", {"opening_cumulative_sales": "0", "confirm": True}, format="json")
+    early = boss.post("/api/v1/setup/go-live/", go_live_body("0", confirm_new_baseline=True), format="json")
     assert early.status_code == 409 and early.data["code"] == "setup_incomplete"
 
     product = make_product()
     make_user("till1", "CASHIER")
-    client.post("/api/v1/stock/opening/", count_payload([(product, 12)]), format="json")
-    assert client.post("/api/v1/stock/opening/confirm/").status_code == 200
-    assert client.get("/api/v1/setup/status/").data["ready_to_go_live"] is True
-    unticked = client.post("/api/v1/setup/go-live/", {"opening_cumulative_sales": "0", "confirm": False}, format="json")
-    assert unticked.data["code"] == "not_confirmed"
-    live = client.post("/api/v1/setup/go-live/", {"opening_cumulative_sales": "750000", "confirm": True}, format="json")
+    prep.post("/api/v1/stock/opening/", count_payload([(product, 12)]), format="json")
+    boss.post("/api/v1/stock/opening/confirm/")
+
+    # the Accountant reconciles and prepares a figure; that approves nothing
+    prepared = prep.put("/api/v1/setup/opening-balance/", {"opening_cumulative_sales": "750000", "as_of_date": "2026-10-31",
+                                                           "note": "Reconciled to the October sheets"}, format="json")
+    assert prepared.status_code == 200
+    status = prep.get("/api/v1/setup/status/").data
+    assert status["prepared_opening_cumulative_sales"] == "750000.00" and status["opening_balance_prepared_by"] == "Accountant"
+    assert status["ready_to_go_live"] is True and status["is_live"] is False
+    shop.cfg.refresh_from_db()
+    assert shop.cfg.opening_cumulative_sales == 0 and not shop.cfg.is_live
+    assert prep.post("/api/v1/setup/go-live/", go_live_body("750000"), format="json").status_code == 403  # Owner only
+
+    # the Owner must state the figure, the cutover date, and tick the confirmation
+    missing = boss.post("/api/v1/setup/go-live/", {"confirm": True}, format="json")
+    assert missing.status_code == 400 and {"opening_cumulative_sales", "as_of_date"} <= set(missing.data["errors"])
+    assert boss.post("/api/v1/setup/go-live/", go_live_body("750000", confirm=False), format="json").data["code"] == "not_confirmed"
+    # zero is refused unless it is confirmed as a deliberate new baseline
+    zero = boss.post("/api/v1/setup/go-live/", go_live_body("0"), format="json")
+    assert zero.status_code == 400 and zero.data["code"] == "zero_needs_confirmation"
+    shop.cfg.refresh_from_db()
+    assert not shop.cfg.is_live
+
+    live = boss.post("/api/v1/setup/go-live/", go_live_body("750000"), format="json")
     assert live.status_code == 200 and live.data["is_live"] is True and live.data["opening_cumulative_sales"] == "750000.00"
-    again = client.post("/api/v1/setup/go-live/", {"opening_cumulative_sales": "1", "confirm": True}, format="json")
+    again = boss.post("/api/v1/setup/go-live/", go_live_body("1"), format="json")
     assert again.data["code"] == "already_live"  # the opening balance cannot be changed afterwards
-    late = client.post("/api/v1/stock/opening/", count_payload([(make_product("New"), 5)]), format="json")
+    assert prep.put("/api/v1/setup/opening-balance/", {"opening_cumulative_sales": "1", "as_of_date": "2026-10-31"}, format="json").data["code"] == "already_live"
+    late = boss.post("/api/v1/stock/opening/", count_payload([(make_product("New"), 5)]), format="json")
     assert late.data["code"] == "already_live"
-    assert AuditLog.objects.filter(action="setup.went_live").count() == 1
+    log = AuditLog.objects.get(action="setup.went_live")
+    assert log.actor == owner and log.after["opening_cumulative_sales"] == "750000.00" and log.after["prepared_by"] == "accountant"
+
+
+def test_zero_opening_balance_is_allowed_as_a_confirmed_new_baseline(owner, shop, make_user, make_product):
+    not_live(shop)
+    boss = client_for(owner)
+    make_user("till1", "CASHIER")
+    boss.post("/api/v1/stock/opening/", count_payload([(make_product(), 12)]), format="json")
+    boss.post("/api/v1/stock/opening/confirm/")
+    live = boss.post("/api/v1/setup/go-live/", go_live_body("0", confirm_new_baseline=True), format="json")
+    assert live.status_code == 200 and live.data["opening_cumulative_sales"] == "0.00"
+    assert AuditLog.objects.get(action="setup.went_live").after["new_baseline"] is True
 
 
 def test_adjustment_records_who_when_why_and_keeps_history(accountant, shop, make_product):

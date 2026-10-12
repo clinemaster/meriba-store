@@ -4,6 +4,8 @@ from django.conf import settings
 from django.db import models
 from django.db.models import F, Q
 
+from core.models import AppendOnlyModel
+
 ZERO = Decimal("0")
 
 
@@ -29,6 +31,8 @@ class BusinessDay(models.Model):
     discounts = models.DecimalField(max_digits=16, decimal_places=2, default=ZERO)
     voids = models.DecimalField(max_digits=16, decimal_places=2, default=ZERO)
     refunds = models.DecimalField(max_digits=16, decimal_places=2, default=ZERO)
+    # Sum of Owner-authorised corrections made after the day was closed (can be + or −).
+    adjustments = models.DecimalField(max_digits=16, decimal_places=2, default=ZERO)
     net_sales = models.DecimalField(max_digits=16, decimal_places=2, default=ZERO)
     closing_cumulative_sales = models.DecimalField(max_digits=16, decimal_places=2, null=True, blank=True)
     last_receipt_seq = models.PositiveIntegerField(default=0)
@@ -43,8 +47,8 @@ class BusinessDay(models.Model):
             models.UniqueConstraint(fields=["branch", "date"], name="business_day_one_per_date"),
             models.UniqueConstraint(fields=["branch"], condition=Q(status="OPEN"), name="business_day_one_open_per_branch"),
             models.CheckConstraint(
-                condition=Q(net_sales=F("gross_sales") - F("discounts") - F("voids") - F("refunds")),
-                name="business_day_net_sales_formula",
+                condition=Q(net_sales=F("gross_sales") - F("discounts") - F("voids") - F("refunds") + F("adjustments")),
+                name="business_day_net_sales_with_adjustments",
             ),
             models.CheckConstraint(
                 condition=(Q(status="OPEN") & Q(closing_cumulative_sales__isnull=True))
@@ -55,6 +59,33 @@ class BusinessDay(models.Model):
 
     def __str__(self):
         return f"{self.date:%d %b %Y}"
+
+
+class DayCorrection(AppendOnlyModel):
+    """An Owner-authorised correction to a closed day's net sales.
+
+    The day's original figures are kept here (before/after), the reason and authoriser are recorded,
+    and every later day's opening and closing balance is recalculated so the chain stays consistent.
+    """
+
+    business_day = models.ForeignKey(BusinessDay, on_delete=models.PROTECT, related_name="corrections")
+    amount = models.DecimalField(max_digits=16, decimal_places=2, help_text="Added to net sales; negative to reduce")
+    reason = models.CharField(max_length=500)
+    sale = models.ForeignKey("sales.Sale", null=True, blank=True, on_delete=models.PROTECT, related_name="+")
+    net_sales_before = models.DecimalField(max_digits=16, decimal_places=2)
+    net_sales_after = models.DecimalField(max_digits=16, decimal_places=2)
+    closing_before = models.DecimalField(max_digits=16, decimal_places=2)
+    closing_after = models.DecimalField(max_digits=16, decimal_places=2)
+    request_key = models.UUIDField(unique=True)
+    authorised_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-id"]
+        constraints = [
+            models.CheckConstraint(condition=~Q(amount=0), name="day_correction_not_zero"),
+            models.CheckConstraint(condition=~Q(reason=""), name="day_correction_needs_reason"),
+        ]
 
 
 class CashierShift(models.Model):
@@ -78,6 +109,8 @@ class CashierShift(models.Model):
     sales_total = models.DecimalField(max_digits=16, decimal_places=2, null=True, blank=True)
     expected_cash = models.DecimalField(max_digits=16, decimal_places=2, null=True, blank=True)
     counted_cash = models.DecimalField(max_digits=16, decimal_places=2, null=True, blank=True)
+    cash_refunds = models.DecimalField(max_digits=16, decimal_places=2, default=ZERO)
+    cash_paid_out = models.DecimalField(max_digits=16, decimal_places=2, default=ZERO)
     cash_variance = models.DecimalField(max_digits=16, decimal_places=2, null=True, blank=True)
     closing_note = models.CharField(max_length=500, blank=True)
     reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+")

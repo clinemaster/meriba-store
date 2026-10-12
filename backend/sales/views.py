@@ -10,7 +10,7 @@ from core.errors import BusinessRuleError
 from core.services import audit
 
 from . import services
-from .models import Payment, PaymentMethod, Sale, SaleItem
+from .models import Payment, PaymentMethod, Refund, Sale, SaleItem
 
 
 class PaymentMethodSerializer(serializers.ModelSerializer):
@@ -45,9 +45,31 @@ class PaymentMethodViewSet(viewsets.ModelViewSet):
 
 
 class SaleItemSerializer(serializers.ModelSerializer):
+    refunded_quantity = serializers.SerializerMethodField()
+
     class Meta:
         model = SaleItem
-        fields = ["id", "product", "product_name", "unit_name", "quantity", "unit_price", "line_total"]
+        fields = ["id", "product", "product_name", "unit_name", "quantity", "unit_price", "line_total", "refunded_quantity"]
+
+    def get_refunded_quantity(self, obj) -> str:
+        return str(sum((r.quantity for r in obj.refund_items.all()), 0))
+
+
+class RefundSerializer(serializers.ModelSerializer):
+    method_name = serializers.CharField(source="method.name", read_only=True)
+    created_by_name = serializers.CharField(source="created_by.display_name", read_only=True)
+    business_date = serializers.DateField(source="business_day.date", read_only=True)
+    receipt_number = serializers.CharField(source="sale.receipt_number", read_only=True)
+    items = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Refund
+        fields = ["id", "sale", "receipt_number", "business_date", "created_at", "total", "method", "method_name",
+                  "reason", "reference", "created_by_name", "items"]
+
+    def get_items(self, obj) -> list:
+        return [{"sale_item": i.sale_item_id, "product_name": i.sale_item.product_name, "quantity": str(i.quantity),
+                 "amount": str(i.amount), "restocked": i.restocked} for i in obj.items.select_related("sale_item")]
 
 
 class PaymentSerializer(serializers.ModelSerializer):
@@ -66,13 +88,18 @@ class SaleSerializer(serializers.ModelSerializer):
     business_date = serializers.DateField(source="business_day.date", read_only=True)
     status_label = serializers.CharField(source="get_status_display", read_only=True)
     voided_by_name = serializers.CharField(source="voided_by.display_name", read_only=True, default="")
+    refunds = RefundSerializer(many=True, read_only=True)
+    refunded_total = serializers.SerializerMethodField()
+
+    def get_refunded_total(self, obj) -> str:
+        return str(sum((r.total for r in obj.refunds.all()), 0))
 
     class Meta:
         model = Sale
         fields = [
             "id", "receipt_number", "status", "status_label", "business_date", "created_at", "cashier", "cashier_name",
             "subtotal", "discount_total", "total", "amount_tendered", "change_due", "items", "payments",
-            "voided_at", "voided_by_name", "void_reason",
+            "voided_at", "voided_by_name", "void_reason", "refunds", "refunded_total",
         ]
 
 
@@ -101,7 +128,7 @@ class SaleListCreateView(generics.ListAPIView):
     serializer_class = SaleSerializer
 
     def get_queryset(self):
-        qs = Sale.objects.select_related("cashier", "business_day", "voided_by").prefetch_related("items", "payments__method")
+        qs = Sale.objects.select_related("cashier", "business_day", "voided_by").prefetch_related("items__refund_items", "payments__method", "refunds")
         user, params = self.request.user, self.request.query_params
         if not user.is_back_office:
             qs = qs.filter(cashier=user)  # a cashier only ever sees their own sales
@@ -174,3 +201,52 @@ class SaleVoidView(APIView):
         ser.is_valid(raise_exception=True)
         sale, _ = services.void_sale(sale_id=pk, actor=request.user, reason=ser.validated_data["reason"])
         return Response(SaleSerializer(_sale_for(request, sale.pk)).data)
+
+
+class RefundLineInput(serializers.Serializer):
+    sale_item = serializers.PrimaryKeyRelatedField(queryset=SaleItem.objects.select_related("product"))
+    quantity = serializers.DecimalField(max_digits=12, decimal_places=3)
+    restock = serializers.BooleanField(default=True)
+
+
+class RefundCreateSerializer(serializers.Serializer):
+    request_key = serializers.UUIDField()
+    reason = serializers.CharField(max_length=300)
+    method = serializers.PrimaryKeyRelatedField(queryset=PaymentMethod.objects.all())
+    shift = serializers.IntegerField(required=False, allow_null=True)
+    reference = serializers.CharField(max_length=60, required=False, allow_blank=True, default="")
+    lines = RefundLineInput(many=True, allow_empty=False, error_messages={"empty": "Choose at least one item to refund."})
+
+
+class SaleRefundView(APIView):
+    """Owner/Accountant: refund items of a completed sale. Recorded on today's open business day."""
+
+    permission_classes = [IsOwnerOrAccountant]
+
+    @extend_schema(request=RefundCreateSerializer, responses={201: SaleSerializer})
+    def post(self, request, pk):
+        from trading.models import CashierShift
+
+        ser = RefundCreateSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        data = ser.validated_data
+        shift = CashierShift.objects.filter(pk=data.get("shift")).first() if data.get("shift") else None
+        _, created = services.refund_sale(
+            sale_id=pk, actor=request.user, request_key=data["request_key"], lines=data["lines"], method=data["method"],
+            reason=data["reason"], shift=shift, reference=data["reference"],
+        )
+        return Response(SaleSerializer(_sale_for(request, pk)).data, status=201 if created else 200)
+
+
+class RefundListView(generics.ListAPIView):
+    permission_classes = [IsOwnerOrAccountant]
+    serializer_class = RefundSerializer
+
+    def get_queryset(self):
+        qs = Refund.objects.select_related("sale", "method", "created_by", "business_day")
+        params = self.request.query_params
+        if params.get("date_from"):
+            qs = qs.filter(business_day__date__gte=params["date_from"])
+        if params.get("date_to"):
+            qs = qs.filter(business_day__date__lte=params["date_to"])
+        return qs

@@ -73,9 +73,9 @@ def _count_response(adjustment, created):
 
 
 class OpeningStockView(APIView):
-    """Owner enters the physically counted opening quantities before go-live."""
+    """Owner or Accountant enters the physically counted opening quantities; the Owner approves them."""
 
-    permission_classes = [IsOwner]
+    permission_classes = [IsOwnerOrAccountant]
 
     @extend_schema(request=CountSerializer, responses={201: dict})
     def post(self, request):
@@ -94,7 +94,7 @@ class OpeningStockConfirmView(APIView):
 
     @extend_schema(request=None, responses={200: dict})
     def post(self, request):
-        cfg = services.confirm_opening_stock(user=request.user)
+        cfg = services.confirm_opening_stock(user=request.user, approved=request.data.get("approved", True) is not False)
         return Response({"opening_stock_confirmed_at": cfg.opening_stock_confirmed_at})
 
 

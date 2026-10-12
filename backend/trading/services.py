@@ -16,7 +16,8 @@ ZERO = Decimal("0.00")
 
 def shift_figures(shift: CashierShift) -> dict:
     """Live totals for one shift, worked out from its recorded sales and payments."""
-    from sales.models import Payment, PaymentMethod, Sale
+    from finance.models import Expense
+    from sales.models import Payment, PaymentMethod, Refund, Sale
 
     sales = Sale.objects.filter(shift=shift)
     totals = sales.aggregate(
@@ -41,6 +42,8 @@ def shift_figures(shift: CashierShift) -> dict:
         for m in methods
     ]
     cash_sales = sum((p["amount"] for p in payments if p["is_cash"]), ZERO)
+    cash_refunds = Refund.objects.filter(shift=shift, method__is_cash=True).aggregate(t=Sum("total"))["t"] or ZERO
+    cash_paid_out = Expense.objects.filter(shift=shift, status=Expense.Status.RECORDED).aggregate(t=Sum("amount"))["t"] or ZERO
     return {
         "sale_count": totals["sale_count"],
         "sales_total": totals["sales_total"] or ZERO,
@@ -49,14 +52,21 @@ def shift_figures(shift: CashierShift) -> dict:
         "payments": payments,
         "opening_float": shift.opening_float,
         "cash_sales": cash_sales,
-        # Expected cash = float + cash kept from sales (− cash refunds + cash in − cash out, once those exist).
-        "expected_cash": shift.opening_float + cash_sales,
+        "cash_refunds": cash_refunds,
+        "cash_paid_out": cash_paid_out,
+        # FR-REC-04: expected cash = float + cash kept from sales − cash refunds − cash paid out of the drawer.
+        "expected_cash": shift.opening_float + cash_sales - cash_refunds - cash_paid_out,
     }
 
 
 def day_figures(day: BusinessDay) -> dict:
-    """Net sales for a business day, from its sales. Cancelled sales are shown and then taken off."""
-    from sales.models import Sale
+    """Net sales for a business day.
+
+    net = gross (every sale recorded that day, at full value)
+          − discounts − voids (sales of that day later cancelled; each is in gross once and taken off once)
+          − refunds paid out that day (for sales of any day) + Owner-authorised corrections.
+    """
+    from sales.models import Refund, Sale
 
     agg = Sale.objects.filter(business_day=day).aggregate(
         gross=Sum("subtotal"),
@@ -65,11 +75,11 @@ def day_figures(day: BusinessDay) -> dict:
         sale_count=Count("id", filter=Q(status=Sale.Status.COMPLETED)),
     )
     gross, discounts, voids = agg["gross"] or ZERO, agg["discounts"] or ZERO, agg["voids"] or ZERO
-    refunds = ZERO  # customer returns arrive with the returns workflow
-    net = gross - discounts - voids - refunds
+    refunds = Refund.objects.filter(business_day=day).aggregate(t=Sum("total"))["t"] or ZERO
+    net = gross - discounts - voids - refunds + day.adjustments
     return {
         "sale_count": agg["sale_count"], "gross_sales": gross, "discounts": discounts, "voids": voids,
-        "refunds": refunds, "net_sales": net,
+        "refunds": refunds, "adjustments": day.adjustments, "net_sales": net,
         "opening_cumulative_sales": day.opening_cumulative_sales,
         "closing_cumulative_sales": day.opening_cumulative_sales + net,
     }
@@ -187,6 +197,8 @@ def close_shift(*, shift_id, actor, counted_cash, note="") -> tuple[CashierShift
     shift.sales_total = figures["sales_total"]
     shift.expected_cash = figures["expected_cash"]
     shift.counted_cash = counted
+    shift.cash_refunds = figures["cash_refunds"]
+    shift.cash_paid_out = figures["cash_paid_out"]
     shift.cash_variance = variance
     shift.closing_note = note[:500]
     shift.save()
@@ -246,3 +258,63 @@ def review_shift(*, shift_id, reviewer, note="", verified_methods=()) -> Cashier
           summary=f"Approved shift of {shift.cashier.display_name} on {shift.business_day}",
           before={"status": before}, after={"status": shift.status, "cash_variance": shift.cash_variance})
     return shift
+
+
+@transaction.atomic
+def correct_closed_day(*, day_id, owner, amount, reason, request_key, sale=None) -> tuple["DayCorrection", bool]:
+    """Owner-only formal correction of a closed day's net sales.
+
+    Nothing is overwritten silently: the correction row keeps the figures before and after, the reason
+    and who authorised it. Every later day's opening and closing balance is then recalculated.
+    """
+    from .models import DayCorrection
+
+    existing = DayCorrection.objects.filter(request_key=request_key).first()
+    if existing:
+        return existing, False
+    reason = (reason or "").strip()
+    if len(reason) < 10:
+        raise BusinessRuleError("Explain clearly why this closed day is being corrected.", code="reason_required", status_code=400)
+    amount = money(amount)
+    if amount == 0:
+        raise BusinessRuleError("Enter the amount to add or take off.", code="bad_amount", status_code=400)
+
+    # Same lock as starting a day, so a new day cannot open half-way through the recalculation.
+    BusinessSettings.objects.select_for_update().get(branch=get_branch())
+    day = BusinessDay.objects.select_for_update().filter(pk=day_id).first()
+    if day is None:
+        raise BusinessRuleError("We could not find that day.", code="not_found", status_code=404)
+    if day.status != BusinessDay.Status.CLOSED:
+        raise BusinessRuleError("Only a closed day can be corrected. For an open day, cancel or refund the sale.", code="day_open")
+    if sale is not None and sale.business_day_id != day.pk:
+        raise BusinessRuleError("That sale does not belong to this day.", code="wrong_day", status_code=400)
+
+    before_net, before_closing = day.net_sales, day.closing_cumulative_sales
+    day.adjustments += amount
+    day.net_sales += amount
+    day.closing_cumulative_sales = day.opening_cumulative_sales + day.net_sales
+    day.save(update_fields=["adjustments", "net_sales", "closing_cumulative_sales"])
+    correction = DayCorrection.objects.create(
+        business_day=day, amount=amount, reason=reason[:500], sale=sale, request_key=request_key, authorised_by=owner,
+        net_sales_before=before_net, net_sales_after=day.net_sales,
+        closing_before=before_closing, closing_after=day.closing_cumulative_sales,
+    )
+
+    # Roll the change forward through every later day so opening always equals the previous closing.
+    carried, recalculated = day.closing_cumulative_sales, []
+    later = BusinessDay.objects.select_for_update().filter(branch=day.branch, date__gt=day.date).order_by("date")
+    for nxt in later:
+        old = (nxt.opening_cumulative_sales, nxt.closing_cumulative_sales)
+        nxt.opening_cumulative_sales = carried
+        if nxt.status == BusinessDay.Status.CLOSED:
+            nxt.closing_cumulative_sales = carried + nxt.net_sales
+            carried = nxt.closing_cumulative_sales
+        nxt.save(update_fields=["opening_cumulative_sales", "closing_cumulative_sales"])
+        recalculated.append({"date": str(nxt.date), "opening": [old[0], nxt.opening_cumulative_sales],
+                             "closing": [old[1], nxt.closing_cumulative_sales]})
+    audit(owner, "day.corrected", day, reason=reason,
+          summary=f"Corrected closed day {day} by {amount:,.0f}; {len(recalculated)} later day(s) recalculated",
+          before={"net_sales": before_net, "closing_cumulative_sales": before_closing},
+          after={"net_sales": day.net_sales, "closing_cumulative_sales": day.closing_cumulative_sales,
+                 "sale": getattr(sale, "receipt_number", None), "later_days": recalculated})
+    return correction, True
