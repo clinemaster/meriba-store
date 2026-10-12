@@ -64,6 +64,14 @@ export type ShopSettings = {
 export type SetupStatus = {
   is_live: boolean; ready_to_go_live: boolean; opening_cumulative_sales: string; went_live_at?: string | null;
   prepared_opening_cumulative_sales: string | null; opening_balance_as_of: string | null; opening_balance_note: string;
-  opening_balance_prepared_by: string; opening_stock_confirmed: boolean;
+  opening_balance_prepared_by: string;
+  opening_stock: { approved: boolean; pending: boolean; uncounted: number; uncounted_names: string[]; complete: boolean };
   steps: { key: string; title: string; done: boolean; detail: string }[];
+};
+
+export type OpeningCount = {
+  id: number; count_date: string; counted_by_name: string; note: string; status: "PENDING_REVIEW" | "APPROVED" | "REJECTED";
+  status_label: string; created_at: string; prepared_by_name: string; reviewed_by_name: string; reviewed_at: string | null; review_note: string;
+  lines: { product: number; product_name: string; unit: string; counted_quantity: string; reference_quantity: string | null;
+           reference_source: string; variance: string | null; approved_quantity: string | null; movement: number | null }[];
 };

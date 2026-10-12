@@ -98,9 +98,28 @@ Available: daily sales and cumulative balance, sales by product, sales by cashie
 cash reconciliation, stock on hand, low stock, stock movement by product, stock received, expenses, and a
 sales/purchases/expenses summary.
 
-### Before go-live — **Setup** and **Stock**
-You can enter and correct the opening stock count, and prepare the opening cumulative sales balance with its cutover
-date and how you verified it. Only the Owner can approve them.
+### Before go-live — **Stock** and **Setup**
+**Opening stock count (Stock).** Enter the date of the count and who counted. For every product on sale, type the
+quantity physically counted (type 0 if there is none) and press **Save to the count sheet**. You can keep adding to
+and correcting the sheet. Where a product has an old Excel figure, it is shown beside your count with the difference,
+for comparison only. Nothing becomes stock until the Owner approves the sheet.
+
+**Opening cumulative sales balance (Setup).** Prepare the figure with its cutover date and how you verified it.
+Only the Owner can approve it.
+
+### The old Excel sheets — **Excel History**
+The Excel records are kept for reference and reviewed here. Nothing on these screens changes live stock or sales.
+- **Overview and import**: choose the workbook and press **Step 1 · Check the file** to see what it contains.
+  Nothing is saved. Only the Owner can do Step 2.
+- **Exceptions**: things the system found that need a decision. Open one to see the source sheet and row.
+  You can add an explanation and say where the evidence is. You can decide missing dates and figures that do not
+  add up: *Explained with evidence*, *Accepted as incomplete*, or *Records rejected*. Questions about what a product
+  is, or its price, are for the Owner.
+- **Unlabelled rows**: rows under the product list with no label. Say what a row is, exclude it (with a reason), or
+  flag it. They are never treated as sales or payments.
+- **Historical Daily Records**: every line as it was written. Lines marked *Incomplete* are affected by an open or
+  unexplained exception.
+- **Download the exception report** for a meeting with the Owner.
 
 ### Products and stock
 - **Products**: add a product, change a price (you will be asked to confirm), or switch a product off.
@@ -117,8 +136,10 @@ You can do everything above, plus:
 ### First-time setup — **Setup**
 Work through the steps; each shows *Done* or *Not done yet*.
 1. **Add your products and selling prices** (Products).
-2. **Opening stock** (Stock): count every product physically and type the quantities (the Accountant can do this
-   for you). Check it, then on Setup press **Approve the opening stock**. This locks it; **Unlock** lets you fix a count.
+2. **Opening stock** (Stock): every product on sale must be physically counted and typed onto the count sheet
+   (the Accountant can prepare it). Check the sheet, then press **Approve the count**. Only then do the counted
+   quantities become stock. Press **Reject for a recount** with a note if something looks wrong. To correct a count
+   after approving, save another count sheet and approve that. Old Excel figures are never used as stock.
 3. **Create at least one cashier account** (Users).
 4. **Opening cumulative sales balance**: type the verified running total of sales as of your cutover date, the date,
    and how it was verified. No figure is filled in for you. Type `0` only if cumulative tracking is truly starting
@@ -137,6 +158,22 @@ except through recorded corrections.
 
 ---
 
+### The old Excel sheets — **Excel History**
+1. Take a backup, then **Step 1 · Check the file** and read the preview. Tick the two boxes and press **Step 2 · Import**.
+   The lines are stored as historical reference only. Importing the same file again adds nothing.
+2. **Exceptions** that only you can decide:
+   - *Same name, different prices* (for example two "Henken" lines): choose whether it is the same product with a price
+     change, different sizes, different price types, or a typing error. You can record the confirmed name, the
+     approved price, its type and the date it applies from. Both original lines are always kept.
+   - *Unusual price change* (for example a cost dropping from 9,000 to 1,290): confirm it is correct, or record the
+     correct value. The original figure is never changed.
+   - *Missing price*: approve a selling price, or mark the product as not sold.
+3. **Product Mapping Review**: for each name found in the sheets, confirm the name and the unit it is sold in, then
+   create a product (with an approved selling price) or link it to one that exists. A product with no approved
+   selling price is created switched off and cannot be sold. Mapping never gives a product stock.
+4. When nothing is waiting, **Accept as reconciled** with a note. Until then every screen says **NOT RECONCILED**.
+   You can **reopen** any decision with a reason.
+
 ### Correct a closed day — **Daily Closing → balance history → Correct…**
 For formal accounting corrections only; a normal customer refund should use **Refund items**. Choose whether net sales
 go down or up, the amount and a clear reason. The original figures are kept, your name is recorded, and every later
@@ -145,5 +182,5 @@ day's opening and closing balance is recalculated.
 ---
 
 ## Not available yet
-Purchase orders, screens for shop settings, payment methods and audit history, reopening a closed day to add sales,
-importing the old Excel records. See `REQUIREMENTS_CHECKLIST.md`.
+Purchase orders, screens for shop settings, payment methods and audit history, and reopening a closed day to add
+sales. See `REQUIREMENTS_CHECKLIST.md`.

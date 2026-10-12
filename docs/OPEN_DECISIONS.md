@@ -43,24 +43,47 @@ A cancelled sale is counted in gross once and taken off once. It cannot also be 
 | Q12 | **Whole units only** | Quantities must be whole numbers |
 | Q13 | **Receipt number format** | `MB-YYYYMMDD-0001`, restarting each day |
 
+## Excel migration decisions (12 Oct 2026)
+
+All are built. Details are in [HISTORICAL_IMPORT.md](HISTORICAL_IMPORT.md).
+
+| # | Decision | How it works in the system |
+|---|---|---|
+| H1 | **Missing workbook sheets.** No other workbook is assumed. The importer reads the daily sheets and produces *Product Mapping Review* and *Historical Daily Records* itself. A later workbook can be imported as an additional source without duplicates | Both outputs are generated on import. Stable keys (date + line number + name) make a second workbook add only what is new; a differing copy of a stored line is not imported and is flagged |
+| H2 | **Missing dates (1–9 Sep) and unexplained stock changes.** Nothing is fabricated or interpolated; changes are not assumed to be sales. Everything is preserved and flagged; reviewers can add verified explanations with evidence; affected figures stay incomplete until reviewed | One "Missing dates" exception lists the nine dates and the 57 products with closing-before and opening-after, each traced to sheet and row. Affected records are "Pending review" and "Incomplete". Explanations carry evidence and source references, author and time |
+| H3 | **Henken at 3,500 and 4,000.** Both kept; no merge, overwrite or preferred price. The Owner decides which of four cases applies; identity, price type, effective date and approval are stored | "Same name, different prices" exception, Owner only, with the four choices. Approved prices are stored with type, effective date and approver, apart from the originals |
+| H4 | **MAGIC MOMENT cost 9,000 → 1,290.** Flagged, both values preserved, not auto-corrected. Establish which price field it is; keep price types separate | "Unusual price change" exception shows the workbook column ("Purchase price"), both values and their sheets. Purchase price and sales price are separate fields throughout. The Owner's choice is audited |
+| H5 | **mkwawa has no price.** Kept as an unresolved source product; no price invented; cannot be activated for sale until a selling price is approved; history preserved | "Missing price" exception. If mapped without a price, the product is created switched off; the system refuses to switch on or sell a product with no selling price |
+| H6 | **Unlabelled rows 117–131.** Preserved; never auto-classified or imported as transactions. A review screen shows sheet, row, original values and a proposal; a reviewer classifies, excludes or flags, with reasons and audit | "Unlabelled rows" tab. Proposals come with their evidence and are never applied automatically. There is no path by which such a row becomes a transaction |
+| H7 | **Opening stock** comes from a verified physical count approved by the Owner, never from Excel closing figures. The workflow records product and unit, counted quantity, count date and responsible person, variance against a reference, reviewer and status, approved quantity and movement reference. Live inventory stays off until count and approval are complete | Count sheet on the Stock screen. Excel figure shown as reference only, with the difference. Nothing is stock until the Owner approves; go-live is blocked until every product on sale has an approved count |
+| H8 | **Safeguards:** dry run; review dashboard; traceability to sheet and row; originals preserved with a record of approved corrections; idempotent imports; historical snapshots separate from live movements; explicit statuses and permissions; downloadable exception report; tests for every exception; no claim of reconciliation until everything is resolved or accepted | All present. The history is labelled NOT RECONCILED until nothing is waiting and the Owner accepts it; a later import or reopened decision withdraws that |
+
+## What the importer found in the October workbook (dry run; nothing imported into the real database yet)
+
+| Finding | Waiting for |
+|---|---|
+| No sheets for 1–9 September; stock of 57 products changes across the gap | An explanation with evidence, or acceptance as incomplete |
+| "Henken" on lines 4 and 5 at 3,500 and 4,000 | Owner: which of the four cases |
+| **New:** "black and whithe" also appears on two lines with different prices (renamed "kubwa" and "ndogo" on 9 Oct) | Owner: almost certainly two sizes, but it is your decision |
+| "MAGIC MOMENT" purchase price 9,000 → 1,290 on 30 Sep | Owner: correct, a typing error, or a different price type |
+| "mkwawa" has no sales price | Owner: identity, unit, price — or not sold |
+| 129 product names over 113 lines (16 lines were renamed on 9 Oct); the unit is stated plainly for only some | Owner: confirm name and unit for each when mapping |
+| 434 unlabelled rows (rows 117–123, 125–131 on 31 sheets). Rows 117–118 equal column totals; the others match nothing | Owner or Accountant: say what each row number is, exclude it, or flag it |
+
+## Defaults I applied in the importer that need your confirmation
+
+| # | Topic | Current behaviour |
+|---|---|---|
+| I1 | What identifies a product line across sheets | The `S/N` number. Names may change between sheets; the line number is treated as the same line. If a future workbook numbers its lines differently, carry-forward differences will be flagged, not hidden |
+| I2 | When a price change counts as "unusual" | Falls by more than half, more than doubles, purchase price above the sales price, or below a fifth of it. Smaller changes are recorded in the price history and flagged on the mapping line, without a separate exception |
+| I3 | Who may decide what | Product identity and prices: Owner only. Missing dates, arithmetic, conflicting copies, unlabelled rows: Owner or Accountant. Importing, reopening a decision, and accepting the history: Owner only |
+| I4 | What blocks "reconciled" | Any open material exception, any unlabelled row still pending or flagged, and any source product not yet mapped or rejected |
+| I5 | Every product on sale needs an approved count before go-live | A count of zero is allowed but must be entered |
+| I6 | Correcting an approved count before go-live | By a further count sheet, which the Owner also approves; both stay in the ledger |
+| I7 | The import itself needs the Owner to tick "backup taken" | The system cannot check that a backup exists; it records who confirmed |
+
 ## What you must provide before go-live
 
-1. **A physical stock count** of every product, taken on the evening before the first live day.
-2. **The verified opening cumulative sales balance** and its cutover date — or your explicit confirmation that tracking starts fresh from zero.
-3. **Answers to the Excel questions below**, at least X3–X7, so the product list can be set up correctly.
-
-## Questions about the Excel workbook (`MERIBA  STORE OCT  2026.xlsx`)
-
-Found by reading all 31 sheets. Nothing has been imported.
-
-| # | Finding | Question |
-|---|---|---|
-| X1 | The SRS expects sheets called *Product Mapping Review*, *Historical Daily Records*, *Raw Source Rows*. The workbook has only 31 daily sheets (31 Aug, then 10 Sep – 9 Oct 2026) | Is this the right workbook, or is there a prepared one? |
-| X2 | 1–9 September are missing. Stock for 57 products changes across the gap with no record (e.g. Konyagi ndogo 459 → 350) | Do the missing sheets exist? |
-| X3 | "Henken" appears twice (rows 4 and 5) with different prices (3,500 and 4,000) | Two different products (which sizes?) or a duplicate? |
-| X4 | "MAGIC MOMENT kati" cost changed from 9,000 to **1,290** on 30 Sep (selling price 13,000) | Typing mistake? What is the right cost? |
-| X5 | "mkwawa" has no price and no stock | Still sold? |
-| X6 | Names changed on 9 Oct (e.g. "grants" → "grants without glass", "grants750mls" → "grants with glass") | Confirm the 9 Oct names are the correct ones |
-| X7 | Units differ by product: some counted per bottle, some per crate, carton or 4-pack ("Box (4)" at 13,500) | Confirm, per product, what one "unit" is |
-| X8 | Rows 117–131 hold unlabelled totals (e.g. 632,700; 697,900; 1,990,300; 83,105,700) | What are these figures (expenses? cash? bank?) |
-| X9 | The sheets total TZS 50,395,300 in sales, but with nine days missing | Per D7 this is not used as the opening balance |
+1. **Your decisions on the exceptions above**, made in the Excel History screens (or tell me and I will note them for you to enter).
+2. **A physical stock count** of every product, entered on the count sheet and approved by you.
+3. **The verified opening cumulative sales balance** and its cutover date — or your explicit confirmation that tracking starts fresh from zero.

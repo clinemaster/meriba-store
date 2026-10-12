@@ -92,3 +92,62 @@ class StockAdjustmentLine(AppendOnlyModel):
             models.UniqueConstraint(fields=["adjustment", "product"], name="adjustment_line_once_per_product"),
             models.CheckConstraint(condition=Q(quantity_counted__gte=0), name="adjustment_count_not_negative"),
         ]
+
+
+class OpeningCount(models.Model):
+    """A physical count sheet used to establish opening stock before go-live.
+
+    Nothing reaches the live stock ledger until the Owner approves the sheet. Quantities always
+    come from the physical count typed here, never from historical Excel figures.
+    """
+
+    class Status(models.TextChoices):
+        PENDING_REVIEW = "PENDING_REVIEW", "Pending review"
+        APPROVED = "APPROVED", "Approved"
+        REJECTED = "REJECTED", "Rejected"
+
+    branch = models.ForeignKey("core.Branch", on_delete=models.PROTECT, related_name="+")
+    count_date = models.DateField()
+    counted_by_name = models.CharField(max_length=120, help_text="The person responsible for the physical count")
+    note = models.CharField(max_length=300, blank=True)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING_REVIEW)
+    request_key = models.UUIDField(unique=True)
+    prepared_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    review_note = models.CharField(max_length=300, blank=True)
+
+    class Meta:
+        ordering = ["-id"]
+        constraints = [
+            models.UniqueConstraint(fields=["branch"], condition=Q(status="PENDING_REVIEW"), name="opening_count_one_pending"),
+            models.CheckConstraint(
+                condition=Q(status="PENDING_REVIEW", reviewed_by__isnull=True) | Q(status__in=["APPROVED", "REJECTED"], reviewed_by__isnull=False),
+                name="opening_count_review_recorded",
+            ),
+        ]
+
+
+class OpeningCountLine(models.Model):
+    count = models.ForeignKey(OpeningCount, on_delete=models.PROTECT, related_name="lines")
+    product = models.ForeignKey("catalog.Product", on_delete=models.PROTECT, related_name="+")
+    unit = models.CharField(max_length=30, help_text="The product's approved unit of measure when counted")
+    counted_quantity = models.DecimalField(max_digits=14, decimal_places=3)
+    # For comparison only (e.g. the last Excel closing figure). Never used to set stock.
+    reference_quantity = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
+    reference_source = models.CharField(max_length=120, blank=True)
+    # Filled in when the Owner approves the sheet.
+    approved_quantity = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
+    movement = models.ForeignKey(InventoryMovement, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
+
+    class Meta:
+        ordering = ["product__name", "id"]
+        constraints = [
+            models.UniqueConstraint(fields=["count", "product"], name="opening_count_line_once_per_product"),
+            models.CheckConstraint(condition=Q(counted_quantity__gte=0), name="opening_count_not_negative"),
+        ]
+
+    @property
+    def variance(self):
+        return None if self.reference_quantity is None else self.counted_quantity - self.reference_quantity

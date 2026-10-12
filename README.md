@@ -18,6 +18,8 @@ and what is still to be built.
 - Back office: review cashier closings, cancel or refund a sale, receive deliveries, expenses, stock corrections, users, audit trail.
 - Refunds are recorded on the current day; closed days change only through an Owner's audited correction.
 - Eleven reports with CSV export.
+- Opening stock from a physical count sheet that only the Owner can approve.
+- Historical Excel import with dry run, exception review, product mapping review and an exception report. Historical data stays separate from live stock and is labelled not reconciled until the Owner accepts it.
 
 ## Parts
 
@@ -70,6 +72,7 @@ cd C:\Projects\meriba-lsms\frontend; npm test; npm run typecheck
 - [Architecture](docs/ARCHITECTURE.md) · [Database design](docs/DATABASE_DESIGN.md)
 - [User guide](docs/USER_GUIDE.md) · [Testing](docs/TESTING.md)
 - [Deployment](docs/DEPLOYMENT.md) · [Backup and restore](docs/BACKUP_AND_RESTORE.md)
+- [Historical Excel import and review](docs/HISTORICAL_IMPORT.md)
 
 ## Rules for anyone changing this project
 

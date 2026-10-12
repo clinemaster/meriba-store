@@ -12,7 +12,7 @@ Last updated: 12 Oct 2026.
 | File is named v2.3; cover says v2.0; revision note says v2.2 | Treated as one document; the later "Clarification" and "Usability and Role-Based Access" sections win where they differ from earlier ones |
 | §1.1, §5, §10 say "inspect and reuse an existing project"; the master prompt says build new | Greenfield, as the master prompt instructs. The existing `meriba` PostgreSQL database on this computer was **not touched**; this project uses a new database `meriba_lsms` |
 | §2 lists five roles (Owner, Manager, Cashier, Stock Controller, Auditor); the later section and master prompt define three | Three roles. Manager and Stock Controller duties fall to Accountant/Owner. A read-only Auditor role is not built |
-| §3.14 names worksheets that the supplied workbook does not contain | Recorded as question X1 in [OPEN_DECISIONS.md](OPEN_DECISIONS.md); nothing imported |
+| §3.14 names worksheets (*Product Mapping Review*, *Historical Daily Records*) that the supplied workbook does not contain | Owner decision H1: the importer reads the daily sheets and generates both outputs itself. See [HISTORICAL_IMPORT.md](HISTORICAL_IMPORT.md) |
 | "Expenses" is required by the master prompt and the role table but has no functional requirements in the SRS | Built as a dated expense record. It never feeds the cumulative sales balance; cash paid from a drawer lowers that drawer's expected cash |
 
 ## Functional requirements
@@ -70,11 +70,11 @@ Last updated: 12 Oct 2026.
 | ID | Status | Notes |
 |---|---|---|
 | FR-STK-01..04, 08, 09 | ✅ | Sale, void, opening, adjustment, delivery and return movements |
-| FR-STK-05 Snapshots separate from movements | ➖ | No snapshot import yet |
+| FR-STK-05 Snapshots separate from movements | ✅ | Historical records live in their own tables; tests prove an import changes no live table |
 | FR-STK-06 Conversions to base units | ✅ | AT-06 |
 | FR-STK-07 Stock views refresh | ✅ | |
 | FR-STK-10 Daily per-product balance record | 🟡 | Provided as a report worked out from the ledger for any dates (opening, received, sold, returned, adjusted, closing). Not stored as a separate table; transfers do not exist (one branch) |
-| FR-STK-11 Opening stock from an authorised count | ✅ | Owner or Accountant enters and corrects the count; only the Owner approves and locks it (decision D8) |
+| FR-STK-11 Opening stock from an authorised count | ✅ | Physical count sheet (date, counted by, unit, quantity, Excel figure for comparison only); nothing is stock until the Owner approves; go-live blocked until every product on sale has an approved count (decision H7) |
 | FR-STK-12/13 Carry-forward: stock and money, kept separate | ✅ | Money: AT-SALES-01..05. Stock: AT-STK-01..03 |
 | FR-STK-14 Finalise / reopen a day | 🟡 | Finalise + lock ✅. Owner correction of a closed day with reason, audit and recalculation of later days ✅. Reopening a day to add sales is not offered (refunds and corrections cover it) |
 | FR-STK-15 No duplicate posting | ✅ | Database constraint + tests |
@@ -112,8 +112,24 @@ Eleven reports, each with date filters where relevant and CSV export: daily sale
 ### 3.13 Audit — 🟡
 Recording ✅ (FR-AUD-01..04) and API ✅. Audit history screen ⬜.
 
-### 3.14 Excel import — ⬜ (Phase 8, blocked on X1–X9)
-Workbook has been inspected read-only; findings are in [OPEN_DECISIONS.md](OPEN_DECISIONS.md). Per decision D7 it is kept separate from the live opening balance.
+### 3.14 Excel import — ✅ built; the real import and its review are waiting for the Owner
+
+| ID | Status | Notes |
+|---|---|---|
+| FR-IMP-01 Inspect all worksheets, document column mapping | ✅ | [HISTORICAL_IMPORT.md](HISTORICAL_IMPORT.md) |
+| FR-IMP-02 Product Mapping Review and Historical Daily Records as structured sources | ✅ | Generated from the daily sheets (decision H1) |
+| FR-IMP-03 Import into MERIBA Main Branch | ➖ | Historical records are reference data and are not attached to live branch stock; no branch is ever created from a sheet |
+| FR-IMP-04 Dry run, preview, validation, errors, reconciliation totals | ✅ | |
+| FR-IMP-05 Preserve worksheet, identifiers, dates, values | ✅ | File, worksheet, row and original cell text on every record |
+| FR-IMP-06 Idempotent retries with stable source keys | ✅ | AT-17 |
+| FR-IMP-07 Flag ambiguous names, units, conversions, missing fields, duplicates | ✅ | Flags on the mapping review; exceptions for the material ones |
+| FR-IMP-08 Fabricate nothing | ✅ | No sales, receipts, suppliers, customers, payment methods, prices or opening stock are created by an import |
+| FR-IMP-09 Never sum or replay snapshots as live movements | ✅ | AT-16, AT-STK-06 |
+| FR-IMP-10 Backup before import; transactions | 🟡 | Import runs in one transaction. The Owner must confirm a backup was taken; the system cannot verify it |
+| FR-IMP-11 No reset, delete or overwrite | ✅ | Stored records are never overwritten; a differing copy is flagged instead |
+| FR-IMP-12 Verify imported counts against workbook totals | ✅ | Stored count checked against lines read; total sales reported from the file |
+| Review workflow: statuses, permissions, explanations with evidence, approved prices by type, reopen, exception report, acceptance | ✅ | Owner decisions H2–H8 |
+The October workbook has been run through a dry run (3,503 lines, five material exceptions) but **not imported into the real database**: that is the Owner's step. Per decision D7 the history is kept separate from the live opening balance.
 
 ## Cumulative monetary sales balance (SRS clarification, master prompt §7)
 | Requirement | Status |
@@ -147,12 +163,12 @@ Workbook has been inspected read-only; findings are in [OPEN_DECISIONS.md](OPEN_
 | AT-10 Return | ✅ | `test_backoffice.py` |
 | AT-11..14 | ✅ | `test_day_closing.py`, `test_sales.py` |
 | AT-15 Credit sale | ⏸ | |
-| AT-16, AT-17 Import | ⬜ | |
+| AT-16, AT-17 Import | ✅ | `test_history.py`, including the real workbook |
 | AT-18 Permissions | ✅ | `test_permissions.py` |
 | AT-STK-01..03 (100 + 20 − 45 = 75 …) | ✅ | `test_backoffice.py` |
 | AT-STK-04 | ✅ | Sale and delivery retries |
 | AT-STK-05 | 🟡 | Money side ✅ (correction audited, later days recalculated). Stock side: ledger check in the stock report ✅; no "finalised stock day" to correct |
-| AT-STK-06 | ⬜ | Needs the importer |
+| AT-STK-06 | ✅ | `test_history.py` |
 | AT-SALES-01..04 | ✅ | |
 | AT-SALES-05 | ✅ | `test_backoffice.py` |
 | AT-UX-01 | 🟡 | Needs a trial with a real first-time user |
@@ -168,6 +184,6 @@ Workbook has been inspected read-only; findings are in [OPEN_DECISIONS.md](OPEN_
 | 5 Cashier sales workflow | ✅ |
 | 6 Daily closing and cumulative balance | ✅ |
 | 7 Accountant and Owner functions | 🟡 users, refunds, receiving, expenses, reports ✅; purchase orders, settings screen, payment-method screen, audit-history screen ⬜ (their APIs exist) |
-| 8 Historical data migration | ⬜ |
+| 8 Historical data migration | 🟡 importer and review screens ✅; the Owner's import and decisions outstanding |
 | 9 UI refinement and testing | ⬜ |
 | 10 Deployment preparation | 🟡 documented; not yet rehearsed on the shop computer |

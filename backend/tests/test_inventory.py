@@ -19,35 +19,67 @@ def not_live(shop):
     shop.cfg.save()
 
 
-def test_accountant_prepares_opening_stock_and_owner_approves(owner, accountant, cashier, shop, make_product):
+def sheet_payload(lines, key=None, **extra):
+    return {"request_key": str(key or uuid.uuid4()), "count_date": "2026-10-31", "counted_by_name": "Asha and Juma",
+            "lines": [{"product": p.pk, "quantity": str(q)} for p, q in lines]} | extra
+
+
+def test_opening_stock_is_a_physical_count_sheet_that_only_the_owner_can_approve(owner, accountant, cashier, shop, make_product):
     not_live(shop)
     a, b = make_product("A"), make_product("B")
     prep, boss = client_for(accountant), client_for(owner)
     key = uuid.uuid4()
-    first = prep.post("/api/v1/stock/opening/", count_payload([(a, 48), (b, 0)], key), format="json")
-    retry = prep.post("/api/v1/stock/opening/", count_payload([(a, 48), (b, 0)], key), format="json")
-    assert (first.status_code, retry.status_code) == (201, 200) and retry.data["already_saved"] is True
-    assert stock_of(a) == 48 and InventoryMovement.objects.filter(movement_type="OPENING").count() == 1
-    movement = InventoryMovement.objects.get()
-    assert (movement.user, movement.reason, movement.source_type) == (accountant, "Physical count", "StockAdjustment")
+    first = prep.post("/api/v1/stock/opening-counts/", sheet_payload([(a, 48)], key), format="json")
+    retry = prep.post("/api/v1/stock/opening-counts/", sheet_payload([(a, 48)], key), format="json")
+    assert (first.status_code, retry.status_code) == (201, 200) and retry.data["id"] == first.data["id"]
+    sheet = first.data["id"]
+    assert first.data["status"] == "PENDING_REVIEW" and first.data["lines"][0]["unit"] == "Bottle"
 
-    # a miscount can be corrected until the Owner approves; both entries stay in the ledger
-    assert prep.post("/api/v1/stock/opening/", count_payload([(a, 46)], reason="Recount"), format="json").status_code == 201
-    assert stock_of(a) == 46 and InventoryMovement.objects.filter(product=a).count() == 2
+    # nothing is live stock until the Owner approves
+    assert stock_of(a) == 0 and not InventoryMovement.objects.exists()
+    another = prep.post("/api/v1/stock/opening-counts/", sheet_payload([(b, 5)]), format="json")
+    assert another.status_code == 409 and another.data["code"] == "count_pending"
 
-    # approving is the Owner's decision alone
-    assert prep.post("/api/v1/stock/opening/confirm/").status_code == 403
-    assert client_for(cashier).post("/api/v1/stock/opening/", count_payload([(a, 1)]), format="json").status_code == 403
-    assert boss.post("/api/v1/stock/opening/confirm/").status_code == 200
-    locked = prep.post("/api/v1/stock/opening/", count_payload([(a, 10)]), format="json")
-    assert locked.status_code == 409 and locked.data["code"] == "opening_approved" and stock_of(a) == 46
-    assert boss.post("/api/v1/stock/opening/confirm/", {"approved": False}, format="json").status_code == 200  # unlock
-    assert prep.post("/api/v1/stock/opening/", count_payload([(a, 47)]), format="json").status_code == 201
-    assert {"stock.opening_approved", "stock.opening_unlocked"} <= set(AuditLog.objects.values_list("action", flat=True))
+    # the sheet can be corrected and added to while it is pending
+    edited = prep.put(f"/api/v1/stock/opening-counts/{sheet}/", sheet_payload([(a, 46), (b, 0)]), format="json")
+    assert edited.status_code == 200 and {l["product_name"]: l["counted_quantity"] for l in edited.data["lines"]} == {"A": "46.000", "B": "0.000"}
+
+    assert client_for(cashier).get("/api/v1/stock/opening-counts/").status_code == 403
+    assert prep.post(f"/api/v1/stock/opening-counts/{sheet}/review/", {"approve": True}, format="json").status_code == 403  # Owner only
+    approved = boss.post(f"/api/v1/stock/opening-counts/{sheet}/review/", {"approve": True}, format="json")
+    assert approved.status_code == 200 and approved.data["status"] == "APPROVED" and approved.data["reviewed_by_name"] == "Owner"
+    assert (stock_of(a), stock_of(b)) == (46, 0)
+    line_a = next(l for l in approved.data["lines"] if l["product_name"] == "A")
+    movement = InventoryMovement.objects.get()  # a zero count needs no movement
+    assert (line_a["approved_quantity"], line_a["movement"]) == ("46.000", movement.pk)
+    assert (movement.movement_type, movement.source_type, movement.source_id, movement.user) == ("OPENING", "OpeningCount", str(sheet), owner)
+    assert "Asha and Juma" in movement.reason
+
+    # approved sheets are closed; repeating the approval changes nothing; a correction needs a new sheet
+    assert boss.post(f"/api/v1/stock/opening-counts/{sheet}/review/", {"approve": True}, format="json").status_code == 200
+    assert InventoryMovement.objects.count() == 1
+    assert prep.put(f"/api/v1/stock/opening-counts/{sheet}/", sheet_payload([(a, 1)]), format="json").data["code"] == "count_closed"
+    fix = prep.post("/api/v1/stock/opening-counts/", sheet_payload([(a, 47)], note="Found one more behind the counter"), format="json")
+    refused = boss.post(f"/api/v1/stock/opening-counts/{fix.data['id']}/review/", {"approve": False}, format="json")
+    assert refused.status_code == 400 and refused.data["code"] == "note_required"
+    assert boss.post(f"/api/v1/stock/opening-counts/{fix.data['id']}/review/", {"approve": False, "note": "Recount with me present"}, format="json").data["status"] == "REJECTED"
+    assert stock_of(a) == 46
+    fix2 = prep.post("/api/v1/stock/opening-counts/", sheet_payload([(a, 47)]), format="json")
+    boss.post(f"/api/v1/stock/opening-counts/{fix2.data['id']}/review/", {"approve": True}, format="json")
+    assert stock_of(a) == 47 and InventoryMovement.objects.filter(product=a).count() == 2  # both entries stay in the ledger
+    actions = set(AuditLog.objects.values_list("action", flat=True))
+    assert {"stock.opening_count_saved", "stock.opening_count_approved", "stock.opening_count_rejected"} <= actions
 
 
 def go_live_body(amount, **extra):
     return {"opening_cumulative_sales": amount, "as_of_date": "2026-10-31", "confirm": True} | extra
+
+
+def approve_count(boss, lines):
+    sheet = boss.post("/api/v1/stock/opening-counts/", sheet_payload(lines), format="json")
+    assert sheet.status_code == 201, sheet.data
+    done = boss.post(f"/api/v1/stock/opening-counts/{sheet.data['id']}/review/", {"approve": True}, format="json")
+    assert done.status_code == 200, done.data
 
 
 def test_guided_setup_and_owner_approval_of_the_opening_balance(owner, accountant, shop, make_user, make_product):
@@ -58,10 +90,18 @@ def test_guided_setup_and_owner_approval_of_the_opening_balance(owner, accountan
     early = boss.post("/api/v1/setup/go-live/", go_live_body("0", confirm_new_baseline=True), format="json")
     assert early.status_code == 409 and early.data["code"] == "setup_incomplete"
 
-    product = make_product()
+    product, second = make_product("Konyagi"), make_product("Safari")
     make_user("till1", "CASHIER")
-    prep.post("/api/v1/stock/opening/", count_payload([(product, 12)]), format="json")
-    boss.post("/api/v1/stock/opening/confirm/")
+    sheet = prep.post("/api/v1/stock/opening-counts/", sheet_payload([(product, 12)]), format="json").data["id"]
+    step = lambda: next(s for s in boss.get("/api/v1/setup/status/").data["steps"] if s["key"] == "opening_stock")
+    assert step()["done"] is False and "waiting for the Owner" in step()["detail"]
+    boss.post(f"/api/v1/stock/opening-counts/{sheet}/review/", {"approve": True}, format="json")
+    # every product on sale needs an approved count before live inventory is switched on
+    assert step()["done"] is False and "1 product(s) on sale have no approved count" in step()["detail"]
+    blocked = boss.post("/api/v1/setup/go-live/", go_live_body("750000"), format="json")
+    assert blocked.status_code == 409 and blocked.data["code"] == "setup_incomplete"
+    approve_count(boss, [(second, 0)])  # an explicit count of zero is a valid count
+    assert step()["done"] is True
 
     # the Accountant reconciles and prepares a figure; that approves nothing
     prepared = prep.put("/api/v1/setup/opening-balance/", {"opening_cumulative_sales": "750000", "as_of_date": "2026-10-31",
@@ -74,11 +114,9 @@ def test_guided_setup_and_owner_approval_of_the_opening_balance(owner, accountan
     assert shop.cfg.opening_cumulative_sales == 0 and not shop.cfg.is_live
     assert prep.post("/api/v1/setup/go-live/", go_live_body("750000"), format="json").status_code == 403  # Owner only
 
-    # the Owner must state the figure, the cutover date, and tick the confirmation
     missing = boss.post("/api/v1/setup/go-live/", {"confirm": True}, format="json")
     assert missing.status_code == 400 and {"opening_cumulative_sales", "as_of_date"} <= set(missing.data["errors"])
     assert boss.post("/api/v1/setup/go-live/", go_live_body("750000", confirm=False), format="json").data["code"] == "not_confirmed"
-    # zero is refused unless it is confirmed as a deliberate new baseline
     zero = boss.post("/api/v1/setup/go-live/", go_live_body("0"), format="json")
     assert zero.status_code == 400 and zero.data["code"] == "zero_needs_confirmation"
     shop.cfg.refresh_from_db()
@@ -87,10 +125,10 @@ def test_guided_setup_and_owner_approval_of_the_opening_balance(owner, accountan
     live = boss.post("/api/v1/setup/go-live/", go_live_body("750000"), format="json")
     assert live.status_code == 200 and live.data["is_live"] is True and live.data["opening_cumulative_sales"] == "750000.00"
     again = boss.post("/api/v1/setup/go-live/", go_live_body("1"), format="json")
-    assert again.data["code"] == "already_live"  # the opening balance cannot be changed afterwards
+    assert again.data["code"] == "already_live"
     assert prep.put("/api/v1/setup/opening-balance/", {"opening_cumulative_sales": "1", "as_of_date": "2026-10-31"}, format="json").data["code"] == "already_live"
-    late = boss.post("/api/v1/stock/opening/", count_payload([(make_product("New"), 5)]), format="json")
-    assert late.data["code"] == "already_live"
+    late = boss.post("/api/v1/stock/opening-counts/", sheet_payload([(product, 5)]), format="json")
+    assert late.data["code"] == "already_live"  # after go-live, only recorded adjustments change stock
     log = AuditLog.objects.get(action="setup.went_live")
     assert log.actor == owner and log.after["opening_cumulative_sales"] == "750000.00" and log.after["prepared_by"] == "accountant"
 
@@ -99,11 +137,21 @@ def test_zero_opening_balance_is_allowed_as_a_confirmed_new_baseline(owner, shop
     not_live(shop)
     boss = client_for(owner)
     make_user("till1", "CASHIER")
-    boss.post("/api/v1/stock/opening/", count_payload([(make_product(), 12)]), format="json")
-    boss.post("/api/v1/stock/opening/confirm/")
+    approve_count(boss, [(make_product(), 12)])
     live = boss.post("/api/v1/setup/go-live/", go_live_body("0", confirm_new_baseline=True), format="json")
     assert live.status_code == 200 and live.data["opening_cumulative_sales"] == "0.00"
     assert AuditLog.objects.get(action="setup.went_live").after["new_baseline"] is True
+
+
+def test_a_product_cannot_be_on_sale_without_a_selling_price(owner):
+    client = client_for(owner)
+    refused = client.post("/api/v1/products/", {"name": "mkwawa"}, format="json")
+    assert refused.status_code == 400 and "selling_price" in refused.data["errors"]
+    kept = client.post("/api/v1/products/", {"name": "mkwawa", "is_active": False}, format="json")
+    assert kept.status_code == 201 and kept.data["is_active"] is False
+    switch_on = client.patch(f"/api/v1/products/{kept.data['id']}/", {"is_active": True}, format="json")
+    assert switch_on.status_code == 400 and Product.objects.get(pk=kept.data["id"]).is_active is False
+    assert client.patch(f"/api/v1/products/{kept.data['id']}/", {"is_active": True, "selling_price": "2500"}, format="json").status_code == 200
 
 
 def test_adjustment_records_who_when_why_and_keeps_history(accountant, shop, make_product):

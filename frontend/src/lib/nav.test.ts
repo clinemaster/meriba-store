@@ -19,7 +19,7 @@ describe("menus by role", () => {
 });
 
 describe("opening a page by typing its address (AT-UX-02)", () => {
-  it.each(["/users", "/setup", "/products", "/stock", "/closing", "/receive", "/expenses", "/reports", "/anything-else"])("cashier is refused %s", (path) => {
+  it.each(["/users", "/setup", "/products", "/stock", "/closing", "/receive", "/expenses", "/reports", "/history", "/anything-else"])("cashier is refused %s", (path) => {
     expect(canOpen("CASHIER", path)).toBe(false);
   });
   it.each(["/", "/sale", "/sales", "/day/start", "/day/close", "/change-password"])("cashier may open %s", (path) => {

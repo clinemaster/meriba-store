@@ -17,6 +17,7 @@ export const NAV: NavItem[] = [
   { href: "/receive", label: "Receive Stock", roles: OFFICE },
   { href: "/expenses", label: "Expenses", roles: OFFICE },
   { href: "/reports", label: "Reports", roles: OFFICE },
+  { href: "/history", label: "Excel History", roles: OFFICE },
   { href: "/users", label: "Users", roles: ["OWNER"] },
   { href: "/setup", label: "Setup", roles: OFFICE },
 ];

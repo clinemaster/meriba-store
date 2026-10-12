@@ -13,7 +13,7 @@ import { useLoad } from "@/lib/useLoad";
 const WHERE: Record<string, { href: string; action: string; ownerOnly?: boolean }> = {
   products: { href: "/products", action: "Go to Products" },
   prices: { href: "/products", action: "Go to Products" },
-  opening_stock: { href: "/stock", action: "Enter opening stock" },
+  opening_stock: { href: "/stock", action: "Open the count sheet" },
   cashier: { href: "/users", action: "Go to Users", ownerOnly: true },
 };
 
@@ -92,20 +92,7 @@ export default function SetupPage() {
             </div>
             <div className="flex flex-wrap gap-2">
               {WHERE[step.key] && (!WHERE[step.key].ownerOnly || isOwner) && <Link href={WHERE[step.key].href} className="btn-secondary">{WHERE[step.key].action}</Link>}
-              {step.key === "opening_stock" && isOwner && !step.done && (
-                <button className="btn-primary" disabled={busy}
-                  onClick={() => window.confirm("Approve the opening stock that has been entered as the real physical count? It will be locked. After going live it can only be changed by a recorded stock adjustment.")
-                    && act(() => api("/stock/opening/confirm/", { method: "POST", body: { approved: true } }), "Opening stock approved and locked.")}>
-                  Approve the opening stock
-                </button>
-              )}
-              {step.key === "opening_stock" && isOwner && step.done && (
-                <button className="btn-secondary" disabled={busy}
-                  onClick={() => act(() => api("/stock/opening/confirm/", { method: "POST", body: { approved: false } }), "Opening stock unlocked. It can be corrected and must be approved again.")}>
-                  Unlock to correct a count
-                </button>
-              )}
-              {step.key === "opening_stock" && !isOwner && !step.done && <span className="self-center text-sm text-slate-600">Waiting for the Owner&apos;s approval</span>}
+              {step.key === "opening_stock" && d.opening_stock.pending && <span className="self-center text-sm font-semibold text-amber-800">{isOwner ? "A count sheet is waiting for your approval" : "Waiting for the Owner's approval"}</span>}
             </div>
           </li>
         ))}

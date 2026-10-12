@@ -48,6 +48,14 @@ core_auditlog  (who, what, when, why, before, after)
 | `finance_supplier` | Suppliers |
 | `finance_goodsreceipt`, `finance_goodsreceiptline` | A delivery: optional supplier and invoice number, products, quantities, optional cost |
 | `finance_expense` | Expense: date, category, description, amount, payment method, drawer it was paid from (if any), status |
+| `inventory_openingcount`, `inventory_openingcountline` | Physical count sheet before go-live: count date, who counted, product, unit, counted quantity, Excel reference figure (comparison only), review status, reviewer, approved quantity, the stock movement it produced |
+| `history_importbatch` | One committed import of one workbook file (name, fingerprint, who, summary) |
+| `history_sourceproduct` | Product Mapping Review: each product name as written, its recorded price history per price type, flags, proposal, the Owner's decision and the live product it maps to |
+| `history_historicalrecord` | Historical Daily Records: file, worksheet, row, date, original cell text, figures read, validation status, import status, incomplete mark |
+| `history_unclassifiedrow` | Unlabelled rows kept as written, with proposal, decision and reason |
+| `history_reviewitem`, `history_reviewnote` | Exceptions with their evidence and decision; explanations added by reviewers (never edited) |
+| `history_approvedprice` | Owner-approved price for a source product: price type, amount, effective date, approver |
+| `history_historyacceptance` | The Owner's explicit acceptance of the history as reconciled |
 
 ## Business rules enforced by the database itself
 
@@ -68,6 +76,9 @@ core_auditlog  (who, what, when, why, before, after)
 | A refund has a positive total and a reason; a line is refunded once per refund | `refund_total_positive`, `refund_needs_reason`, `refund_item_once_per_line` |
 | A day correction is never zero and always has a reason | `day_correction_not_zero`, `day_correction_needs_reason` |
 | A delivery, refund, expense or correction request is saved once | `request_key` unique on each |
+| A historical line, source product, unlabelled row or exception is stored once | `source_key` / `key` unique on each |
+| Only one count sheet can be waiting for review; a decided sheet names its reviewer | `opening_count_one_pending`, `opening_count_review_recorded` |
+| An excluded unlabelled row has a reason; a decided exception has a note and a resolution | `unclassified_exclusion_needs_reason`, `review_decision_needs_note` |
 | **Closing cumulative sales = opening + net sales** (closed days); empty while open | `business_day_closing_balance_formula` |
 | **A closing balance is carried forward at most once** | `previous_day` is one-to-one |
 | One shift per cashier per day; one open shift per cashier | `shift_one_per_cashier_per_day`, `shift_one_open_per_cashier` |
@@ -115,7 +126,15 @@ and by business date; audit log by time, action and (entity type, entity id); pr
 ## Not yet in the schema
 
 Purchase orders, cash put into a drawer mid-shift, a stored daily per-product stock summary (it is a report
-instead), import batches. They arrive with their phases as new migrations.
+instead). They arrive with their phases as new migrations.
+
+## Historical data is walled off from the live system
+
+No table in the `history` module has a foreign key into sales, payments, stock movements or balances, and no code
+reads those tables to create live records. The only links out are: a source product may point to the live product
+the Owner mapped it to, and a count sheet may show the last historical closing figure beside a physical count for
+comparison. Purchase price and sales price are separate columns in historical records, and approved prices carry an
+explicit price type.
 
 ## Refunds and corrections never rewrite history
 

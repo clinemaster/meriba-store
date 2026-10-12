@@ -69,11 +69,13 @@ class SettingsView(APIView):
 
 def setup_steps(branch) -> list[dict]:
     from catalog.models import Product
-    from inventory.models import InventoryMovement
+    from inventory.services import opening_stock_state
     from sales.models import PaymentMethod
 
-    cfg = get_settings(branch)
     products = Product.objects.filter(is_active=True)
+    stock = opening_stock_state(branch)
+    stock_detail = ("A count sheet is waiting for the Owner's review" if stock["pending"] else
+                    f"{stock['uncounted']} product(s) on sale have no approved count yet" if stock["uncounted"] else "Approved")
     return [
         {"key": "products", "title": "Add your products and selling prices",
          "done": products.exists(), "detail": f"{products.count()} active products"},
@@ -83,9 +85,8 @@ def setup_steps(branch) -> list[dict]:
         {"key": "payment_methods", "title": "Choose the payment methods you accept",
          "done": PaymentMethod.objects.filter(is_active=True).exists(),
          "detail": ", ".join(PaymentMethod.objects.filter(is_active=True).values_list("name", flat=True))},
-        {"key": "opening_stock", "title": "Enter and confirm the opening stock count",
-         "done": cfg.opening_stock_confirmed_at is not None,
-         "detail": f"{InventoryMovement.objects.filter(branch=branch, movement_type='OPENING').count()} products counted"},
+        {"key": "opening_stock", "title": "Count the stock physically and have the Owner approve the count",
+         "done": stock["complete"], "detail": stock_detail},
         {"key": "cashier", "title": "Create at least one cashier account",
          "done": User.objects.filter(role=User.Role.CASHIER, is_active=True).exists(), "detail": ""},
     ]
@@ -110,7 +111,7 @@ class SetupStatusView(APIView):
             "opening_balance_as_of": cfg.opening_balance_as_of,
             "opening_balance_note": cfg.opening_balance_note,
             "opening_balance_prepared_by": getattr(cfg.opening_balance_prepared_by, "display_name", ""),
-            "opening_stock_confirmed": cfg.opening_stock_confirmed_at is not None,
+            "opening_stock": opening_stock_state_for(branch),
             "steps": steps,
             "ready_to_go_live": all(s["done"] for s in steps),
         })
@@ -222,3 +223,9 @@ class AuditLogListView(generics.ListAPIView):
         if params.get("date_to"):
             qs = qs.filter(created_at__date__lte=params["date_to"])
         return qs
+
+
+def opening_stock_state_for(branch) -> dict:
+    from inventory.services import opening_stock_state
+
+    return opening_stock_state(branch)

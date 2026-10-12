@@ -5,7 +5,8 @@ def test_openapi_schema_and_swagger_page_for_back_office(owner, accountant):
     schema = client_for(owner).get("/api/v1/schema/", HTTP_ACCEPT="application/json")
     assert schema.status_code == 200, schema.content[:300]
     paths = schema.json()["paths"]
-    for path in ("/api/v1/sales/", "/api/v1/day/start/", "/api/v1/shifts/{id}/close/", "/api/v1/products/", "/api/v1/stock/opening/"):
+    for path in ("/api/v1/sales/", "/api/v1/day/start/", "/api/v1/shifts/{id}/close/", "/api/v1/products/", "/api/v1/stock/opening-counts/",
+                 "/api/v1/history/imports/dry-run/", "/api/v1/history/review-items/{id}/decide/"):
         assert path in paths, path
     page = client_for(accountant).get("/api/v1/docs/", HTTP_ACCEPT="text/html")
     assert page.status_code == 200 and b"swagger" in page.content.lower()

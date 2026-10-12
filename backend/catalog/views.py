@@ -97,6 +97,17 @@ class ProductManageSerializer(ProductSaleSerializer):
     def validate_selling_price(self, value):
         return money(value)
 
+    def validate(self, attrs):
+        price = attrs.get("selling_price", getattr(self.instance, "selling_price", Decimal("0")))
+        active = attrs.get("is_active", getattr(self.instance, "is_active", True))
+        if active and price <= 0:
+            # A product can be kept on record without a price, but it cannot be put on sale.
+            raise serializers.ValidationError({"selling_price": [
+                "Enter the selling price. A product cannot be on sale without one. "
+                "To keep it without a price for now, untick “On sale”."
+            ]})
+        return attrs
+
     def create(self, validated_data):
         if not validated_data.get("sku"):
             last = Product.objects.order_by("-id").values_list("id", flat=True).first() or 0

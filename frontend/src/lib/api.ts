@@ -29,20 +29,21 @@ async function csrfToken(): Promise<string> {
   return readCookie("csrftoken") ?? data.csrfToken;
 }
 
-export async function api<T = unknown>(path: string, options: { method?: string; body?: unknown } = {}): Promise<T> {
+export async function api<T = unknown>(path: string, options: { method?: string; body?: unknown; form?: FormData } = {}): Promise<T> {
   const method = (options.method ?? "GET").toUpperCase();
   const headers: Record<string, string> = { Accept: "application/json" };
   let response: Response;
   try {
     if (!SAFE.has(method)) {
       headers["X-CSRFToken"] = await csrfToken();
-      headers["Content-Type"] = "application/json";
+      // A file upload sets its own content type (with the multipart boundary).
+      if (!options.form) headers["Content-Type"] = "application/json";
     }
     response = await fetch(`${BASE}${path}`, {
       method,
       headers,
       credentials: "same-origin",
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      body: options.form ?? (options.body === undefined ? undefined : JSON.stringify(options.body)),
     });
   } catch {
     throw new ApiError("We could not reach the shop system. Check the connection and try again.", 0, "network");

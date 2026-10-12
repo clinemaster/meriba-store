@@ -31,9 +31,10 @@ backend/
   sales/       payment methods, sales, sale lines, payments, void, refunds
   finance/     suppliers, deliveries (receiving stock), expenses
   reports/     the eleven reports and CSV export
+  history/     historical Excel import: parser, exception analysis, review decisions (kept apart from live data)
   tests/       automated tests (run against real PostgreSQL)
 frontend/
-  src/app/         one folder per screen (login, sale, sales, day/start, day/close, closing, products, stock, receive, expenses, reports, users, setup)
+  src/app/         one folder per screen (login, sale, sales, day/start, day/close, closing, products, stock, receive, expenses, reports, history, users, setup)
   src/components/  shared pieces (page frame + menu, buttons, messages, receipt)
   src/lib/         API helper, money maths, sign-in state, menu rules, types
 docs/
@@ -57,6 +58,8 @@ they check permission and input, then call a service.
 | **Money is `Decimal`, never floating point** | Backend uses `Decimal(…, 2)`; the website does its sums in whole cents |
 | **Business date, not clock date** | A sale belongs to the open business day, even after midnight. The date is taken in the shop's time zone when the day is opened |
 | **Go-live gate** | No day can be started until the Owner has completed setup and confirmed the opening figures |
+| **Historical data is reference only** | The old Excel sheets are stored as dated snapshots in their own module. The importer's analysis is pure code with no database access, so it cannot change anything; decisions are stored beside the originals, never over them |
+| **A product cannot be on sale without a selling price** | Enforced when saving a product and again when selling |
 
 ## Rounding policy
 
@@ -91,7 +94,8 @@ Versioned under `/api/v1/`. OpenAPI schema at `/api/v1/schema/`, Swagger page at
 | Users (Owner) | `users/`, `users/{id}/`, `users/{id}/reset-password/` |
 | Setup | `settings/`, `setup/status/`, `setup/go-live/` |
 | Products | `categories/`, `products/`, `products/{id}/units/`, `…/units/{id}/verify/` |
-| Stock | `stock/opening/`, `stock/opening/confirm/`, `stock/adjustments/`, `stock/movements/` |
+| Stock | `stock/opening-counts/`, `stock/opening-counts/{id}/`, `stock/opening-counts/{id}/review/`, `stock/adjustments/`, `stock/movements/` |
+| Excel history | `history/dashboard/`, `history/imports/`, `history/imports/dry-run/`, `history/review-items/` (+ `decide`, `notes`, `reopen`), `history/source-products/` (+ `decide`), `history/records/`, `history/unclassified-rows/` (+ `decide`), `history/exception-report/`, `history/accept/` |
 | Day | `day/current/`, `day/start/`, `days/`, `shifts/`, `shifts/{id}/`, `shifts/{id}/close/`, `shifts/{id}/review/` |
 | Sales | `payment-methods/`, `sales/`, `sales/{id}/`, `sales/{id}/void/` |
 | Refunds and corrections | `sales/{id}/refund/`, `refunds/`, `days/{id}/corrections/` |
@@ -110,6 +114,8 @@ Versioned under `/api/v1/`. OpenAPI schema at `/api/v1/schema/`, Swagger page at
 | Cancel a sale, refund, close someone else's shift, review a shift (not own) | ✘ | ✔ | ✔ |
 | Expenses, all reports and exports | ✘ | ✔ | ✔ |
 | Prepare the opening stock count and the opening balance figure | ✘ | ✔ | ✔ |
+| Excel history: dry run, explanations, missing-date and unlabelled-row decisions, exception report | ✘ | ✔ | ✔ |
+| Excel history: import, product identity and price decisions, mapping, reopen, accept as reconciled | ✘ | ✘ | ✔ |
 | **Approve** opening stock, **approve** the opening balance, go live | ✘ | ✘ | ✔ |
 | Correct a closed day | ✘ | ✘ | ✔ |
 | Users, settings, payment methods, verify pack sizes | ✘ | ✘ | ✔ |
