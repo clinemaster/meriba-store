@@ -208,7 +208,7 @@ Leave the dates empty for the current business day.
 
 | Column | What it tells you |
 |---|---|
-| Product Name | The product |
+| Product | The product's name |
 | Unit | Crate, Carton, Box, Bottle or Pack: what it is counted and sold in |
 | Volume (ml) | The size of one bottle |
 | Total Stock | What you had to sell: opening stock plus anything that came in |

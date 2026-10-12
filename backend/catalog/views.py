@@ -257,7 +257,7 @@ class ProductViewSet(viewsets.ModelViewSet):
             response.write("﻿")
             writer = csv.writer(response)
             writer.writerow(["MERIBA product table", f"{start} to {end}"])
-            writer.writerow(["Product Name", "Unit", "Volume (ml)", "Total Stock", "Sales", "Closing Stock", "Purchase Price",
+            writer.writerow(["Product", "Unit", "Volume (ml)", "Total Stock", "Sales", "Closing Stock", "Purchase Price",
                              "Selling Price", "Total Sales", "Profit", "Stock", "Notes"])
             for r in rows:
                 notes = []

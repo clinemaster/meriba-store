@@ -15,7 +15,7 @@ type Form = typeof EMPTY;
 
 /** The eleven columns, in the agreed order. `key` is what the server sorts by. */
 const COLUMNS: { key: string; label: string; numeric?: boolean; help: string }[] = [
-  { key: "name", label: "Product Name", help: "Name of the product" },
+  { key: "name", label: "Product", help: "Name of the product" },
   { key: "sold_by", label: "Unit", help: "The unit this product is counted and sold in" },
   { key: "volume_ml", label: "Volume (ml)", numeric: true, help: "Volume of one bottle, in millilitres" },
   { key: "total_item_stock", label: "Total Stock", numeric: true, help: "Opening stock for the period plus stock received and other stock coming in" },

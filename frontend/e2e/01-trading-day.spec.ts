@@ -73,7 +73,7 @@ test("owner sets up the shop and goes live", async ({ page }) => {
   }
   // the table shows the agreed columns, in the agreed order
   await expect(page.getByRole("columnheader")).toHaveText([
-    /^Product Name/, /^Unit/, /^Volume \(ml\)/, /^Total Stock/, /^Sales/, /^Closing Stock/, /^Purchase Price/, /^Selling Price/,
+    /^Product( [▲▼])?$/, /^Unit/, /^Volume \(ml\)/, /^Total Stock/, /^Sales/, /^Closing Stock/, /^Purchase Price/, /^Selling Price/,
     /^Total Sales/, /^Profit/, /^Stock/, /^Actions/]);
   const safariRow = page.getByRole("row").filter({ hasText: "Safari Kubwa" });
   await expect(safariRow).toContainText("Crate");

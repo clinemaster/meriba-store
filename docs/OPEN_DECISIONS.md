@@ -109,7 +109,7 @@ Mandatory controls confirmed with the policy, and where each lives:
 3. **The verified opening cumulative sales balance** and its cutover date — or your explicit confirmation that tracking starts fresh from zero.
 ## Product table enhancement (12 Oct 2026)
 
-Built as specified: the Products screen shows Product Name, Unit (first labelled "Sold By"; renamed at the owner's request on 13 Oct 2026), Volume (ml), Total Stock, Sales, Closing
+Built as specified: the Products screen shows Product, Unit (first labelled "Sold By"; renamed at the owner's request on 13 Oct 2026), Volume (ml), Total Stock, Sales, Closing
 Stock, Purchase Price, Selling Price, Total Sales, Profit and Stock, for a business day or a date range, with search,
 sorting, pagination, a details view and CSV export. Cost and profit are for the Owner and Accountant only.
 
