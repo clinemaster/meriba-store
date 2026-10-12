@@ -1,0 +1,11 @@
+{
+  "folders": [
+    { "name": "backend (Django API)", "path": "backend" },
+    { "name": "frontend (Next.js website)", "path": "frontend" },
+    { "name": "project root (docs, scripts)", "path": "." }
+  ],
+  "settings": {
+    "files.exclude": { "**/__pycache__": true, "**/.pytest_cache": true },
+    "search.exclude": { "**/node_modules": true, "**/.next": true, "**/.venv": true, "**/staticfiles": true }
+  }
+}
