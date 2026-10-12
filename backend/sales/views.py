@@ -39,6 +39,9 @@ class PaymentMethodViewSet(viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         before = PaymentMethodSerializer(serializer.instance).data
+        switching_off = serializer.instance.is_active and serializer.validated_data.get("is_active") is False
+        if switching_off and not PaymentMethod.objects.filter(is_active=True).exclude(pk=serializer.instance.pk).exists():
+            raise BusinessRuleError("At least one payment method must stay switched on, or nothing could be sold.", code="last_method")
         method = serializer.save()
         audit(self.request.user, "payment_method.changed", method, summary=f"Changed payment method '{method.name}'",
               before=before, after=PaymentMethodSerializer(method).data)

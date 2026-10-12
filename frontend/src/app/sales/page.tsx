@@ -28,7 +28,8 @@ export default function SalesPage() {
   const [busy, setBusy] = useState(false);
 
   function close() {
-+
+    setOpen(null);
+    setRefunding(false);
     setVoiding(false);
     setReason("");
     setProblem(null);

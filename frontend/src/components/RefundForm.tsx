@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 
 import { api, errorMessage } from "@/lib/api";
 import { formatDate, formatQty, formatTZS, toCents } from "@/lib/money";
-import type { PaymentMethod, Sale } from "@/lib/types";
+import type { CurrentDay, PaymentMethod, Sale } from "@/lib/types";
 import { useLoad } from "@/lib/useLoad";
 
 import { Alert, Field, Spinner } from "./ui";
@@ -12,6 +12,8 @@ import { Alert, Field, Spinner } from "./ui";
 /** Owner/Accountant: give money back for some or all items of a completed sale. */
 export function RefundForm({ sale, onDone, onCancel }: { sale: Sale; onDone: (sale: Sale) => void; onCancel: () => void }) {
   const methods = useLoad<PaymentMethod[]>("/payment-methods/");
+  const current = useLoad<CurrentDay>("/day/current/");
+  const [drawer, setDrawer] = useState("");
   const [quantities, setQuantities] = useState<Record<number, string>>({});
   const [damaged, setDamaged] = useState<Record<number, boolean>>({});
   const [methodId, setMethodId] = useState<number | null>(null);
@@ -30,19 +32,22 @@ export function RefundForm({ sale, onDone, onCancel }: { sale: Sale; onDone: (sa
   const totalCents = chosen.reduce((sum, l) => sum + l.cents, 0);
   const active = (methods.data ?? []).filter((m) => m.is_active);
   const method = active.find((m) => m.id === methodId) ?? null;
+  const openShifts = current.data?.open_shifts ?? [];
+  const mustChooseDrawer = !!method?.is_cash && openShifts.length > 1;
 
   async function submit() {
     if (busy) return;
     if (chosen.length === 0) return setProblem("Type how many of each item are being refunded.");
     if (!method) return setProblem("Choose how the money is being given back.");
     if (reason.trim().length < 5) return setProblem("Write the reason for this refund.");
+    if (mustChooseDrawer && !drawer) return setProblem("Choose which cashier's drawer the cash is taken from.");
     setBusy(true);
     setProblem(null);
     try {
       const updated = await api<Sale>(`/sales/${sale.id}/refund/`, {
         method: "POST",
         body: {
-          request_key: requestKey.current, reason, method: method.id,
+          request_key: requestKey.current, reason, method: method.id, shift: mustChooseDrawer ? Number(drawer) : null,
           lines: chosen.map((l) => ({ sale_item: l.item.id, quantity: l.quantity, restock: !damaged[l.item.id] })),
         },
       });
@@ -93,6 +98,15 @@ export function RefundForm({ sale, onDone, onCancel }: { sale: Sale; onDone: (sa
           ))}
         </div>
         {method?.is_cash && <p className="mt-1 text-sm text-slate-600">Cash is taken from the open cashier drawer and lowers the cash expected at closing.</p>}
+        {mustChooseDrawer && (
+          <div className="mt-2 max-w-sm">
+            <label htmlFor="refund-drawer" className="mb-1 block font-semibold">Which drawer is the cash taken from?</label>
+            <select id="refund-drawer" className="input" value={drawer} onChange={(e) => setDrawer(e.target.value)}>
+              <option value="">— Choose —</option>
+              {openShifts.map((s) => <option key={s.id} value={s.id}>{s.cashier_name}&apos;s drawer</option>)}
+            </select>
+          </div>
+        )}
       </fieldset>
       <Field label="Reason for the refund" hint="For example: wrong item given, bottle was leaking.">
         {(p) => <input {...p} className="input" maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} />}

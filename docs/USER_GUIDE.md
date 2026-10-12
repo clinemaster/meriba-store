@@ -5,6 +5,8 @@ Never share your password: every sale and change is recorded under the name that
 
 Amounts are in Tanzanian shillings (TZS). You can type `4500` or `4,500`.
 
+Press **Help** at the top of any screen for step-by-step instructions.
+
 ---
 
 ## Cashier
@@ -149,6 +151,15 @@ Work through the steps; each shows *Done* or *Not done yet*.
 Until you go live, nobody can start a day or sell. The opening figures cannot be changed afterwards
 except through recorded corrections.
 
+### Settings — **Settings**
+Change the branch name, the top and bottom lines of the receipt, whether a sale may be split between payment
+methods, and how much cash difference counts as balanced at closing. Add a payment method, or switch one off;
+at least one must stay on.
+
+### Audit History — **Audit History**
+Who did what and when. Filter by area, username or dates; press **Details** to see the figures before and after.
+Entries cannot be edited or deleted by anyone. The Accountant can see this screen too.
+
 ### Users — **Users**
 - **Add User**: choose a username, name, role and a first password. The person must choose their own
   password the first time they sign in.
@@ -186,5 +197,4 @@ day's opening and closing balance is recalculated.
 ---
 
 ## Not available yet
-Purchase orders, screens for shop settings, payment methods and audit history, and reopening a closed day to add
-sales. See `REQUIREMENTS_CHECKLIST.md`.
+Purchase orders, and reopening a closed day to add sales. See `REQUIREMENTS_CHECKLIST.md`.

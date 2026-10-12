@@ -16,6 +16,8 @@ node_modules/
 .next/
 out/
 coverage/
+e2e-results/
+playwright-report/
 *.tsbuildinfo
 next-env.d.ts
 

@@ -220,3 +220,18 @@ def test_stock_ledger_always_adds_up_to_the_balance(till, accountant, shop, make
     client_for(accountant).post(f"/api/v1/sales/{first}/void/", {"reason": "wrong item"}, format="json")
     ledger = InventoryMovement.objects.filter(product=product).aggregate(total=Sum("quantity_delta"))["total"]
     assert ledger == stock_of(product) == 15
+
+
+def test_owner_manages_payment_methods_but_one_must_stay_on(owner, accountant, cashier, shop):
+    boss = client_for(owner)
+    added = boss.post("/api/v1/payment-methods/", {"code": "airtel-money", "name": "Airtel Money", "reference_label": "Transaction ID"}, format="json")
+    assert added.status_code == 201
+    assert client_for(accountant).patch(f"/api/v1/payment-methods/{shop.bank.pk}/", {"is_active": False}, format="json").status_code == 403
+    for method in (shop.momo, shop.bank, added.data["id"]):
+        pk = getattr(method, "pk", method)
+        assert boss.patch(f"/api/v1/payment-methods/{pk}/", {"is_active": False}, format="json").status_code == 200
+    last = boss.patch(f"/api/v1/payment-methods/{shop.cash.pk}/", {"is_active": False}, format="json")
+    assert last.status_code == 409 and last.data["code"] == "last_method"
+    assert [m["name"] for m in client_for(cashier).get("/api/v1/payment-methods/").data] == ["Cash"]  # cashiers see only what is on
+    assert len(boss.get("/api/v1/payment-methods/").data) == 4
+    assert AuditLog.objects.filter(action__startswith="payment_method.").count() == 4

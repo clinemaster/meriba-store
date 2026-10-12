@@ -19,14 +19,16 @@ describe("menus by role", () => {
 });
 
 describe("opening a page by typing its address (AT-UX-02)", () => {
-  it.each(["/users", "/setup", "/products", "/stock", "/closing", "/receive", "/expenses", "/reports", "/history", "/anything-else"])("cashier is refused %s", (path) => {
+  it.each(["/users", "/setup", "/products", "/stock", "/closing", "/receive", "/expenses", "/reports", "/history", "/audit", "/settings", "/anything-else"])("cashier is refused %s", (path) => {
     expect(canOpen("CASHIER", path)).toBe(false);
   });
-  it.each(["/", "/sale", "/sales", "/day/start", "/day/close", "/change-password"])("cashier may open %s", (path) => {
+  it.each(["/", "/sale", "/sales", "/day/start", "/day/close", "/change-password", "/help"])("cashier may open %s", (path) => {
     expect(canOpen("CASHIER", path)).toBe(true);
   });
   it("accountant is refused owner-only pages", () => {
     expect(canOpen("ACCOUNTANT", "/users")).toBe(false);
+    expect(canOpen("ACCOUNTANT", "/settings")).toBe(false);
+    expect(canOpen("ACCOUNTANT", "/audit")).toBe(true);
     expect(canOpen("ACCOUNTANT", "/reports")).toBe(true);
     expect(canOpen("ACCOUNTANT", "/closing")).toBe(true);
   });

@@ -33,7 +33,7 @@ Last updated: 12 Oct 2026.
 | FR-BR-01 Main branch, editable | ✅ | Created automatically as "MERIBA Main Branch" (code MB) |
 | FR-BR-02 Scope data by branch | ✅ | Stock, sales, days carry a branch |
 | FR-BR-03 More branches later | 🟡 | Data model ready; screens assume one branch |
-| FR-BR-04 Currency, receipt text, timezone, tolerance | 🟡 | Stored and used. A Settings screen for the Owner is not built yet (API exists) |
+| FR-BR-04 Currency, receipt text, timezone, tolerance | ✅ | Settings screen (Owner): branch name, receipt lines, split payments, cash tolerance. Currency and time zone are fixed in configuration |
 
 ### 3.3 Products and units
 | ID | Status | Notes |
@@ -60,7 +60,7 @@ Last updated: 12 Oct 2026.
 ### 3.5 Payments
 | ID | Status | Notes |
 |---|---|---|
-| FR-PAY-01 Cash, mobile money, bank, owner-configured | ✅ | Screen to add/switch methods not built (API exists) |
+| FR-PAY-01 Cash, mobile money, bank, owner-configured | ✅ | Owner adds methods and switches them on or off in Settings; at least one must stay on |
 | FR-PAY-02 Split payment | ✅ | Can be switched off |
 | FR-PAY-03/04 Due, paid, outstanding; paid only when covered | ✅ | Under-payment is refused |
 | FR-PAY-05 Credit sales | ⏸ | Not built (Q12) |
@@ -109,8 +109,8 @@ Void ✅. Refunds/returns ✅ (FR-RET-01..05): linked to the original sale and l
 ### 3.12 Reports — 🟡
 Eleven reports, each with date filters where relevant and CSV export: daily sales and cumulative balance, sales by product, sales by cashier, payment methods, daily closing and cash reconciliation, stock on hand (with value at cost where a cost exists), low stock, stock movement by product, stock received, expenses, and a sales/purchases/expenses summary. All Owner/Accountant only. ⬜ Sales by category, fast/slow movers, a profit report (purchase costs are not yet reliable enough), filters by product/cashier within a report.
 
-### 3.13 Audit — 🟡
-Recording ✅ (FR-AUD-01..04) and API ✅. Audit history screen ⬜.
+### 3.13 Audit — ✅
+Recording ✅ (FR-AUD-01..04). Audit History screen ✅ for Owner and Accountant, with filters by area, user and date, and before/after details.
 
 ### 3.14 Excel import — ✅ built; the real import and its review are waiting for the Owner
 
@@ -156,8 +156,8 @@ The October workbook has been run through a dry run (3,503 lines, five material 
 | Confirm important actions (close day, cancel sale, price change, stock change, role change, go live) | ✅ |
 | Duplicate-click protection; cart kept after an error | ✅ |
 | Guided first-time setup | ✅ |
-| Keyboard use, labels, visible focus, not colour-only | 🟡 Built in; not yet checked by a real cashier or with a screen reader |
-| In-app help section | ⬜ |
+| Keyboard use, labels, visible focus, not colour-only | 🟡 Built in, and the browser tests find every control by its label or role; not yet checked by a real cashier or with a screen reader |
+| In-app help section | ✅ Help page with step-by-step instructions, by role |
 | Tablet/phone layout | 🟡 Responsive layout built; only checked by build, not on a device |
 
 ## SRS acceptance tests
@@ -175,8 +175,8 @@ The October workbook has been run through a dry run (3,503 lines, five material 
 | AT-STK-06 | ✅ | `test_history.py` |
 | AT-SALES-01..04 | ✅ | |
 | AT-SALES-05 | ✅ | `test_backoffice.py` |
-| AT-UX-01 | 🟡 | Needs a trial with a real first-time user |
-| AT-UX-02..07 | ✅ | |
+| AT-UX-01 | 🟡 | A browser test completes a sale using only on-screen labels; still needs a trial with a real first-time user |
+| AT-UX-02..07 | ✅ | Also exercised in a real browser (`frontend/e2e`) |
 
 ## Phase status (master prompt §16)
 | Phase | Status |
@@ -187,7 +187,7 @@ The October workbook has been run through a dry run (3,503 lines, five material 
 | 4 Products and inventory core | ✅ |
 | 5 Cashier sales workflow | ✅ |
 | 6 Daily closing and cumulative balance | ✅ |
-| 7 Accountant and Owner functions | 🟡 users, refunds, receiving, expenses, reports ✅; purchase orders, settings screen, payment-method screen, audit-history screen ⬜ (their APIs exist) |
+| 7 Accountant and Owner functions | 🟡 users, refunds, receiving, expenses, reports, settings, payment methods, audit history ✅; purchase orders ⬜ |
 | 8 Historical data migration | 🟡 importer and review screens ✅; the Owner's import and decisions outstanding |
-| 9 UI refinement and testing | ⬜ |
+| 9 UI refinement and testing | 🟡 browser tests of a full trading day ✅ (three defects found and fixed); trial with real users and the remaining screens ⬜ |
 | 10 Deployment preparation | 🟡 documented; not yet rehearsed on the shop computer |

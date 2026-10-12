@@ -135,7 +135,12 @@ export default function ClosingPage() {
                   <td className="num">{Number(d.adjustments) === 0 ? "—" : formatTZS(d.adjustments)}</td>
                   <td className="num">{d.status === "OPEN" ? "—" : formatTZS(d.net_sales)}</td>
                   <td className="num font-semibold">{d.closing_cumulative_sales === null ? "—" : formatTZS(d.closing_cumulative_sales)}</td>
-+
+                  <td><StatusBadge status={d.status} label={d.status_label} /></td>
+                  <td className="text-right">
+                    {user?.role === "OWNER" && d.status === "CLOSED" && (
+                      <button className="btn-secondary min-h-[2.5rem]" onClick={() => { setCorrecting(d); setNote(""); setCorrAmount(""); setProblem(null); setCorrKey(crypto.randomUUID()); }}>Correct…</button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

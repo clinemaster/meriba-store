@@ -34,7 +34,8 @@ backend/
   history/     historical Excel import: parser, exception analysis, review decisions (kept apart from live data)
   tests/       automated tests (run against real PostgreSQL)
 frontend/
-  src/app/         one folder per screen (login, sale, sales, day/start, day/close, closing, products, stock, receive, expenses, reports, history, users, setup)
+  src/app/         one folder per screen (login, sale, sales, day/start, day/close, closing, products, stock, receive, expenses, reports, history, audit, users, settings, setup, help)
+  e2e/             browser tests (Playwright); run with scripts/e2e.ps1
   src/components/  shared pieces (page frame + menu, buttons, messages, receipt)
   src/lib/         API helper, money maths, sign-in state, menu rules, types
 docs/

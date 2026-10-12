@@ -8,7 +8,7 @@
 | Simultaneous requests | pytest with real threads and separate database connections | No overselling, no duplicate sale, no clash between a sale and a closing |
 | Website logic | Vitest | Money maths in whole cents; which role sees which menu and page |
 | Website critical screen | Vitest + Testing Library | New Sale: totals, stock limit, change, double-click, retry after a lost connection |
-| Whole system | Scripted run through the website address (Next.js → Django → PostgreSQL) | The pieces work together: cookies, CSRF, proxying |
+| Whole system, in a real browser | Playwright driving Chromium through the real screens, against a throwaway database | A person can actually do the job: the screens, buttons, forms and messages work together with the backend |
 
 Tests use their own database (`test_meriba_lsms`), created automatically. They never touch real data.
 
@@ -17,17 +17,22 @@ Tests use their own database (`test_meriba_lsms`), created automatically. They n
 ```powershell
 cd C:\Projects\meriba-lsms\backend;  .\.venv\Scripts\python -m pytest
 cd C:\Projects\meriba-lsms\frontend; npm test; npm run typecheck; npm run build
+
+# Browser tests: creates a throwaway database, starts both programs, runs the tests, removes everything again.
+# Stop the shop system first if it is running (it needs ports 3000 and 8000). First time only: npx playwright install chromium
+cd C:\Projects\meriba-lsms; powershell -ExecutionPolicy Bypass -File scripts\e2e.ps1
 ```
 
-## Actual results — 12 Oct 2026 (fourth round)
+## Actual results — 12 Oct 2026 (fifth round)
 
 | Suite | Result |
 |---|---|
-| Backend `pytest` | **146 passed**, 0 failed (about 3 minutes) |
-| Frontend `vitest` | **34 passed**, 0 failed |
+| Backend `pytest` | **147 passed**, 0 failed (about 4½ minutes) |
+| Frontend `vitest` | **37 passed**, 0 failed |
 | Frontend type check (`tsc --noEmit`) | no errors |
-| Frontend production build (`next build`) | succeeded, 16 screens |
-| End-to-end scripted run through the website | **44 of 44 checks passed**, including uploading the real workbook. Last run in the third round; **not repeated** after the fourth-round changes, which are covered by the backend tests |
+| Frontend production build (`next build`) | succeeded, 19 screens |
+| **Browser tests (Playwright, Chromium)** | **7 passed**, 0 failed (about 1 minute). First time the screens have been exercised in a real browser |
+| Earlier scripted run through the website address (no browser) | 44 of 44 checks in the third round. Superseded by the browser tests |
 | Real October workbook through the importer | dry run and import both tested: 3,503 lines stored, five exceptions raised, live tables untouched, second import adds nothing |
 | Backup → restore on a throwaway database (first round) | restored copy matched the original |
 
@@ -54,8 +59,33 @@ closes: expected cash 117,000, balanced; day net sales 18,000. No sale after clo
 stock report shows received 12, sold 5, returned 1, closing 56, ledger check 0; CSV downloads. Owner corrects the
 closed day by −500: closing becomes 17,500 with the original 18,000 kept. Audit trail holds every key event.
 
+### Browser tests (`frontend/e2e/shop.spec.ts`)
+
+One trading day through the real screens, in order, sharing one throwaway database:
+
+1. A wrong password is refused in plain words; a visitor who is not signed in is sent to the sign-in page.
+2. **Owner sets up and goes live:** adds two products (typing key by key), is refused a product on sale without a
+   price, adds a cashier, fills the physical count sheet, approves it, and goes live. The go-live button stays
+   disabled until TZS 0 is confirmed as a new baseline.
+3. **Cashier:** is made to choose their own password; sees only Home, New Sale, Today's Sales, Close Day; typing the
+   address of the Users page shows "not available"; starts the day with a float; makes a cash sale with change and a
+   sale split between cash and mobile money (blocked while money is still owed); sees stock go down; sees both sales
+   and no cancel or refund buttons.
+4. **Owner during the day:** receives a delivery, refunds one item in cash, records an expense paid from the
+   cashier's drawer; stock shows 48 − 2 + 24 + 1 = 71.
+5. **Cashier closes:** expected cash 109,500 (float + cash sales − refund − expense); a shortage blocks closing until
+   a note is written; closes balanced; closing cumulative sales 40,500; no sale possible afterwards.
+6. **Owner afterwards:** cannot approve the shift until the mobile money total is ticked, then approves; reads the
+   daily sales and stock reports and downloads one; finds the events in the audit history; changes a setting; opens
+   Help; records a formal correction of the closed day and sees the new closing balance, 40,000.
+7. **Excel preview:** uploads the real workbook, sees 3,503 lines, the missing September dates and Henken; the import
+   button stays disabled; after reloading, nothing has been stored.
+
 ### Defects found by testing and fixed
 
+00. **Found by the browser tests (fifth round), all fixed:**
+    - **The receipt window on the Sales screen could not be closed**, and **the "Correct…" button and status column were missing from the balance history**. Both came from a faulty automated edit I made in an earlier round; the type check and the other tests did not notice. Both are now exercised by the browser tests.
+    - **In every pop-up window, the cursor jumped out of the box after each key typed** when the form belonged to the screen behind it (products, users, closing review, corrections). Tests that fill a box in one go did not show it; the browser test now types key by key.
 0. (Third round) The first end-to-end run reported one failure. It was my check script still looking for an audit event name that this round renamed; the system was correct. The script was fixed and the whole run repeated on a fresh database: 44 of 44.
 1. A negative selling price sent to the API caused a server error instead of a clear message. Now refused with a validation message.
 2. Through the website address every API call was redirected in a loop, because the forwarding rule dropped the final `/`. Fixed in `frontend/next.config.mjs`. Only the end-to-end run could catch this.
@@ -83,9 +113,12 @@ closed day by −500: closing becomes 17,500 with the original 18,000 kept. Audi
 
 ## Not tested yet
 
-- Nobody has clicked through the screens in a real browser, and no real cashier has tried them (AT-UX-01). The
-  Refund, Receive Stock, Expenses, Reports, Setup, correction, count-sheet and Excel History screens are covered only
-  by the type check, the build, and tests of the API beneath them. Only the New Sale screen has its own screen-level tests.
+- **No real cashier has tried the system** (AT-UX-01). The browser tests show the screens work; they cannot show
+  whether a first-time user finds them clear.
+- Screens **not** yet exercised in a browser: deciding exceptions, mapping products and labelling rows in Excel
+  History; cancelling (voiding) a sale; editing a product or a user; stock adjustments after go-live; refunds with
+  two drawers open. These are covered by API tests and the type check only. Given what the browser tests found,
+  treat them as unproven until they are added.
 - The real workbook has only been imported into throwaway test databases. It has not been imported into the real
   database; that is the Owner's step.
 - Refunding in cash when two cashiers have drawers open at once: the API supports choosing the drawer; the screen does not yet offer the choice.

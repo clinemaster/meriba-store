@@ -39,6 +39,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <span>
               <span className="font-semibold">{user.display_name}</span> · {ROLE_LABEL[user.role]}
             </span>
+            <Link href="/help" className="underline">Help</Link>
             <Link href="/change-password" className="underline">Change password</Link>
             <button onClick={() => signOut()} className="rounded-lg border border-white/60 px-3 py-1.5 font-semibold hover:bg-white/10">
               Sign out

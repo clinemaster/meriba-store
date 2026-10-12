@@ -18,7 +18,9 @@ export const NAV: NavItem[] = [
   { href: "/expenses", label: "Expenses", roles: OFFICE },
   { href: "/reports", label: "Reports", roles: OFFICE },
   { href: "/history", label: "Excel History", roles: OFFICE },
+  { href: "/audit", label: "Audit History", roles: OFFICE },
   { href: "/users", label: "Users", roles: ["OWNER"] },
+  { href: "/settings", label: "Settings", roles: ["OWNER"] },
   { href: "/setup", label: "Setup", roles: OFFICE },
 ];
 
@@ -26,6 +28,7 @@ export const NAV: NavItem[] = [
 const EXTRA: NavItem[] = [
   { href: "/day/start", label: "Start Day", roles: ALL },
   { href: "/change-password", label: "Change Password", roles: ALL },
+  { href: "/help", label: "Help", roles: ALL },
 ];
 
 export function navFor(role: Role): NavItem[] {
