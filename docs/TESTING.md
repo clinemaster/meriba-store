@@ -25,15 +25,36 @@ cd C:\Projects\meriba-lsms; powershell -ExecutionPolicy Bypass -File scripts\e2e
 # Add  -Workbook "C:\full\path\to\the workbook.xlsx"  to include the test that previews the real Excel file.
 ```
 
-## Actual results — 12 Oct 2026 (sixth round)
+## Actual results — 12 Oct 2026 (seventh round: product table enhancement)
 
 | Suite | Result |
 |---|---|
-| Backend `pytest` | **147 passed**, 0 failed (about 4½ minutes) |
-| Frontend `vitest` | **37 passed**, 0 failed |
+| Backend `pytest` | **160 passed**, 0 failed, **1 skipped** (about 2 minutes). The skipped test imports the real workbook; it could not run because the workbook was open in Excel, which locks the file. It passed in earlier rounds |
+| Frontend `vitest` | **38 passed**, 0 failed |
 | Frontend type check (`tsc --noEmit`) | no errors |
 | Frontend production build (`next build`) | succeeded, 19 screens |
-| **Browser tests (Playwright, Chromium)** | **12 passed**, 0 failed (about 40 seconds), on four consecutive runs. Backend and unit suites were last run in the fifth round; this round changed only screens and tests |
+| **Browser tests (Playwright, Chromium)** | **11 passed**, 0 failed, **1 skipped** (about 30 seconds), on three consecutive runs. The skipped test previews the real workbook and was not given its path this round |
+
+### Product table: the twelve acceptance points (`test_product_table.py`, 14 tests; browser tests where marked)
+
+| # | Point | Result |
+|---|---|---|
+| 1 | New fields supported by backend and database | ✅ Sold By, volume, bottles per unit, average cost; cost on every sale line |
+| 2 | Safe migration of existing data | ✅ Applied to the real database after a backup: two products kept their unit, volumes read as 750 and 200 ml, nothing else changed. A unit not on the list stops the migration rather than being remapped |
+| 3 | History preserved | ✅ Sale lines, stock movements and delivery costs are never updated; each delivery records the average before and after |
+| 4 | Package conversion, a crate of 12 bottles | ✅ Refused until the Owner verifies; 2 crates take 24 bottles; changing the figure leaves past sales alone and needs re-verification. Also in the browser: configured, verified and sold from the New Sale screen |
+| 5 | Daily opening, incoming, sales, closing | ✅ 100 + 20 − 45 = 75; next day opens at 75; cancelled sales not counted; returns and breakages included; earlier day unchanged by later movements |
+| 6 | Total Sales against completed sales | ✅ Equals the day's net sales; not stock × price |
+| 7 | Gross profit from cost of goods sold | ✅ Weighted average (10 at 3,000 + 30 at 4,000 = 3,750), not the latest price; a later delivery does not change the cost of an earlier sale |
+| 8 | Refunds, cancellations, reversals | ✅ Cancelled sale in neither sales nor cost; restocked refund returns its cost; damaged refund stays a cost |
+| 9 | Cashier cannot reach purchase prices or profit, by screen or API | ✅ Table, export, details, cost reports and package changes all refused; product, sale and receipt data sent to a cashier contain no cost fields |
+| 10 | Price changes do not alter history | ✅ Receipt, Total Sales, cost and profit unchanged after changing selling price, purchase price and name |
+| 11 | Filtering and pagination on a large list | ✅ 60 products: pages, sorting both ways with blanks last, search, Sold By and on-sale filters, bad dates and page numbers refused |
+| 12 | All relevant tests run | ✅ Figures above |
+
+Also checked: profit shown as "Not available" or "provisional" rather than invented; expenses excluded from product
+profit; opening stock valued at the entered purchase price; the export matches the screen; Sold By cannot change once
+stock exists; only the five approved units are accepted, by the API and by the database itself.
 | Earlier scripted run through the website address (no browser) | 44 of 44 checks in the third round. Superseded by the browser tests |
 | Real October workbook through the importer | dry run and import both tested: 3,503 lines stored, five exceptions raised, live tables untouched, second import adds nothing |
 | Backup → restore on a throwaway database (first round) | restored copy matched the original |

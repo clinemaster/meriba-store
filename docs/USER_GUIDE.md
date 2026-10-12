@@ -198,3 +198,46 @@ day's opening and closing balance is recalculated.
 
 ## Not available yet
 Purchase orders, and reopening a closed day to add sales. See `REQUIREMENTS_CHECKLIST.md`.
+
+---
+
+## The Products table (Owner and Accountant)
+
+**Products** shows every product on one line, for the day or dates chosen at the top.
+Leave the dates empty for the current business day.
+
+| Column | What it tells you |
+|---|---|
+| Product Name | The product |
+| Sold By | Crate, Carton, Box, Bottle or Pack: the unit it is counted and sold in |
+| Volume (ml) | The size of one bottle |
+| Total Item Stock | What you had to sell: opening stock plus anything that came in |
+| Sales | How many were sold |
+| Closing Stock | What was left: Total Item Stock less sales and breakages |
+| Purchase Price | The average cost of one unit now in stock |
+| Selling Price | Today's selling price |
+| Total Sales | Money from sales in the period, less refunds |
+| Profit | Total Sales less what those goods cost. Rent, wages and other expenses are not taken off here |
+| Stock | What is on the shelf right now |
+
+- Press a **column heading** to sort by it; press again to reverse.
+- **Search**, **Sold By** and **Show** narrow the list. **Download for Excel** saves what you see.
+- Profit says **Not available** when a sale has no purchase cost on record, and **(provisional)** when a delivery was
+  entered without a cost. Enter costs on deliveries to avoid both.
+- **Details** shows the day's sums, the package configuration, every stock movement, and every delivery with what it
+  did to the average cost.
+
+### Adding or changing a product
+Press **+ Add Product** or **Edit**. Choose **Sold By** from the list. **Volume (ml)** is the size of one bottle;
+leave it empty if it does not apply. For a crate, carton, box or pack you can enter how many bottles one holds.
+**Purchase Price** is what one costs from the supplier; cashiers never see it.
+Once a product has stock or sales, its Sold By unit cannot be changed.
+
+### Selling the same product by the crate as well as the bottle
+1. Open **Details** for the product.
+2. Under *Package configuration*, choose the package (for example Crate), how many it holds (for example 12) and its
+   selling price, then **Add package**.
+3. The **Owner** presses **Verify** to confirm the number. Until then it cannot be sold.
+4. On **New Sale** the cashier sees "Sell a whole crate…" under the product. Selling one takes 12 bottles out of stock.
+
+If the number is changed later it must be verified again. Past sales keep the number they were sold with.

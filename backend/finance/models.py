@@ -45,6 +45,9 @@ class GoodsReceiptLine(AppendOnlyModel):
     quantity = models.DecimalField(max_digits=14, decimal_places=3)
     unit_cost = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
     line_cost = models.DecimalField(max_digits=16, decimal_places=2, null=True, blank=True)
+    # The product's weighted-average cost just before and just after this delivery: the purchase-cost history.
+    average_cost_before = models.DecimalField(max_digits=16, decimal_places=4, null=True, blank=True)
+    average_cost_after = models.DecimalField(max_digits=16, decimal_places=4, null=True, blank=True)
 
     class Meta:
         constraints = [

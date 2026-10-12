@@ -4,6 +4,7 @@ from decimal import Decimal
 from django.db import transaction
 from django.utils import timezone
 
+from catalog import costing
 from core.errors import BusinessRuleError
 from core.models import BusinessSettings
 from core.services import audit, get_branch, local_today
@@ -196,6 +197,8 @@ def review_opening_count(*, owner, count_id, approve: bool, note=""):
                 )
                 posted += 1
             line.save(update_fields=["approved_quantity", "movement"])
+            if line.counted_quantity > 0:
+                costing.opening_stock_approved(line.product_id)
         count.status = OpeningCount.Status.APPROVED
     else:
         if len(note) < 5:

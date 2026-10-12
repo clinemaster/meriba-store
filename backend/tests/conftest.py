@@ -83,9 +83,10 @@ def make_product(shop, owner):
 
     def _make(name="Konyagi", price="4500", stock=0, **extra):
         counter["n"] += 1
-        product = Product.objects.create(
-            sku=f"T{counter['n']:04d}", name=name, selling_price=Decimal(price), cost_price=Decimal("1000"), **extra
-        )
+        # Test products start with a known purchase price of 1,000, which is also their average cost.
+        extra.setdefault("cost_price", Decimal("1000"))
+        extra.setdefault("average_cost", extra["cost_price"])
+        product = Product.objects.create(sku=f"T{counter['n']:04d}", name=name, selling_price=Decimal(price), **extra)
         if stock:
             with transaction.atomic():
                 post_movement(
@@ -102,6 +103,8 @@ def set_today(monkeypatch):
     def _set(value: date):
         monkeypatch.setattr("trading.services.local_today", lambda: value)
         monkeypatch.setattr("trading.views.local_today", lambda: value)
+        monkeypatch.setattr("inventory.services.local_today", lambda: value)
+        monkeypatch.setattr("catalog.table.local_today", lambda: value)
     return _set
 
 

@@ -74,6 +74,11 @@ class SaleItem(AppendOnlyModel):
     quantity_base = models.DecimalField(max_digits=14, decimal_places=3)
     unit_price = models.DecimalField(max_digits=14, decimal_places=2)
     line_total = models.DecimalField(max_digits=16, decimal_places=2)
+    # Cost of goods sold, frozen at the moment of sale from the product's weighted-average cost.
+    # Blank when no reliable cost was known: profit for the line is then "not available", never guessed.
+    unit_cost = models.DecimalField(max_digits=16, decimal_places=4, null=True, blank=True)
+    cost_total = models.DecimalField(max_digits=16, decimal_places=2, null=True, blank=True)
+    cost_provisional = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["id"]
@@ -118,6 +123,8 @@ class RefundItem(AppendOnlyModel):
     amount = models.DecimalField(max_digits=16, decimal_places=2)
     # False = damaged / not fit for sale: money is refunded but stock is not increased.
     restocked = models.BooleanField(default=True)
+    # Cost of the goods put back on the shelf (zero for damaged items, which stay a cost; blank if the cost was unknown).
+    cost_returned = models.DecimalField(max_digits=16, decimal_places=2, null=True, blank=True)
 
     class Meta:
         constraints = [

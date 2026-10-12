@@ -1,18 +1,23 @@
+import csv
 from decimal import Decimal
 
 from django.db import transaction
 from django.db.models import DecimalField, OuterRef, Q, Subquery, Value
 from django.db.models.functions import Coalesce
+from django.http import HttpResponse
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from accounts.permissions import IsOwnerOrAccountant, IsSignedIn
+from core.errors import BusinessRuleError
+from core.models import AuditLog
 from core.services import audit, get_branch, money
-from inventory.models import StockBalance
+from inventory.models import InventoryMovement, StockBalance
 
-from .models import Category, Product, ProductUnit
+from . import table
+from .models import Category, Product, ProductUnit, SoldBy
 
 
 class CategorySerializer(serializers.ModelSerializer):
@@ -38,7 +43,7 @@ def stock_status(quantity: Decimal, reorder_point: Decimal) -> str:
 
 
 class ProductSaleSerializer(serializers.ModelSerializer):
-    """What a cashier may see: no purchase cost, no thresholds."""
+    """What a cashier may see: no purchase price, no cost, no profit, no thresholds."""
 
     category_name = serializers.CharField(source="category.name", read_only=True, default="")
     stock_on_hand = serializers.DecimalField(max_digits=14, decimal_places=3, read_only=True)
@@ -49,7 +54,8 @@ class ProductSaleSerializer(serializers.ModelSerializer):
         model = Product
         fields = [
             "id", "sku", "name", "category", "category_name", "brand", "package_size", "pack_description",
-            "base_unit", "barcode", "selling_price", "is_active", "stock_on_hand", "stock_status", "units",
+            "base_unit", "volume_ml", "bottles_per_unit", "barcode", "selling_price", "is_active", "stock_on_hand",
+            "stock_status", "units",
         ]
 
     def get_stock_status(self, obj) -> str:
@@ -64,8 +70,15 @@ class ProductManageSerializer(ProductSaleSerializer):
     sku = serializers.CharField(max_length=30, required=False, allow_blank=True)
 
     class Meta(ProductSaleSerializer.Meta):
-        fields = ProductSaleSerializer.Meta.fields + ["cost_price", "reorder_point", "target_stock", "created_at", "updated_at"]
-        extra_kwargs = {name: {"min_value": 0} for name in ("selling_price", "cost_price", "reorder_point", "target_stock")}
+        fields = ProductSaleSerializer.Meta.fields + ["cost_price", "average_cost", "cost_provisional", "reorder_point",
+                                                      "target_stock", "created_at", "updated_at"]
+        read_only_fields = ["average_cost", "cost_provisional"]  # worked out by the system from deliveries
+        extra_kwargs = {
+            **{name: {"min_value": 0} for name in ("selling_price", "cost_price", "reorder_point", "target_stock")},
+            "volume_ml": {"min_value": 1, "max_value": 100000},
+            "bottles_per_unit": {"min_value": 1, "max_value": 10000},
+            "base_unit": {"error_messages": {"invalid_choice": "Choose one of: " + ", ".join(SoldBy.values) + "."}},
+        }
 
     def get_units(self, obj) -> list:
         return ProductUnitSerializer(obj.units.all(), many=True).data
@@ -98,14 +111,38 @@ class ProductManageSerializer(ProductSaleSerializer):
         return money(value)
 
     def validate(self, attrs):
-        price = attrs.get("selling_price", getattr(self.instance, "selling_price", Decimal("0")))
-        active = attrs.get("is_active", getattr(self.instance, "is_active", True))
+        current = self.instance
+        price = attrs.get("selling_price", getattr(current, "selling_price", Decimal("0")))
+        active = attrs.get("is_active", getattr(current, "is_active", True))
         if active and price <= 0:
             # A product can be kept on record without a price, but it cannot be put on sale.
             raise serializers.ValidationError({"selling_price": [
                 "Enter the selling price. A product cannot be on sale without one. "
                 "To keep it without a price for now, untick “On sale”."
             ]})
+
+        sold_by = attrs.get("base_unit", getattr(current, "base_unit", SoldBy.BOTTLE))
+        if current and "base_unit" in attrs and attrs["base_unit"] != current.base_unit:
+            # Every stock and sales quantity of this product is in its Sold By unit. Changing the unit
+            # afterwards would silently change what those quantities mean.
+            if InventoryMovement.objects.filter(product=current).exists() or current.units.exists():
+                raise serializers.ValidationError({"base_unit": [
+                    f"This product already has stock or sales recorded in {current.base_unit.lower()}s, so its Sold By unit "
+                    "cannot be changed. Add an extra package to sell it another way, or create a new product."
+                ]})
+        per_unit = attrs.get("bottles_per_unit", getattr(current, "bottles_per_unit", None))
+        if sold_by == SoldBy.BOTTLE and per_unit not in (None, 1):
+            raise serializers.ValidationError({"bottles_per_unit": ["A product sold by the bottle holds one bottle. Leave this empty."]})
+        if sold_by == SoldBy.BOTTLE and "base_unit" in attrs:
+            attrs["bottles_per_unit"] = None
+
+        # Keep the size text shown on receipts and screens in step with the volume.
+        if "volume_ml" in attrs:
+            old_text = f"{current.volume_ml}ml" if current and current.volume_ml else None
+            if attrs["volume_ml"]:
+                attrs["package_size"] = f"{attrs['volume_ml']}ml"
+            elif current and current.package_size == old_text:
+                attrs["package_size"] = ""
         return attrs
 
     def create(self, validated_data):
@@ -125,7 +162,23 @@ class CategoryViewSet(viewsets.ModelViewSet):
         return [IsSignedIn()] if self.action in ("list", "retrieve") else [IsOwnerOrAccountant()]
 
 
-AUDITED_FIELDS = ["name", "sku", "selling_price", "cost_price", "is_active", "barcode", "base_unit", "reorder_point", "target_stock"]
+AUDITED_FIELDS = ["name", "sku", "selling_price", "cost_price", "is_active", "barcode", "base_unit", "volume_ml",
+                  "bottles_per_unit", "reorder_point", "target_stock"]
+PLAIN = (Decimal,)
+
+
+def _plain(value):
+    if value is None:
+        return None
+    if isinstance(value, Decimal):
+        return str(value.normalize()) if value != value.to_integral_value() else str(int(value))
+    return value
+
+
+class UnitChangeSerializer(serializers.Serializer):
+    factor = serializers.DecimalField(max_digits=12, decimal_places=3, min_value=1, required=False)
+    selling_price = serializers.DecimalField(max_digits=14, decimal_places=2, min_value=0, required=False)
+    is_active = serializers.BooleanField(required=False)
 
 
 class ProductViewSet(viewsets.ModelViewSet):
@@ -134,6 +187,8 @@ class ProductViewSet(viewsets.ModelViewSet):
     http_method_names = ["get", "post", "patch"]
 
     def get_permissions(self):
+        # Only the plain list and single product are open to cashiers (without cost fields).
+        # The table, the details view and every change are back office only.
         return [IsSignedIn()] if self.action in ("list", "retrieve") else [IsOwnerOrAccountant()]
 
     def get_serializer_class(self):
@@ -176,9 +231,95 @@ class ProductViewSet(viewsets.ModelViewSet):
         after = {f: getattr(product, f) for f in AUDITED_FIELDS}
         changed = {k: v for k, v in after.items() if str(before[k]) != str(v)}
         if changed:
-            action_name = "product.price_changed" if "selling_price" in changed or "cost_price" in changed else "product.changed"
+            if "selling_price" in changed or "cost_price" in changed:
+                action_name = "product.price_changed"
+            elif "bottles_per_unit" in changed or "base_unit" in changed:
+                action_name = "product.package_changed"
+            else:
+                action_name = "product.changed"
             audit(self.request.user, action_name, product, summary=f"Changed product '{product}'",
                   before={k: before[k] for k in changed}, after=changed)
+
+    # --- The product table ---------------------------------------------------------------------
+
+    @extend_schema(responses={200: dict})
+    @action(detail=False, url_path="table")
+    def table(self, request):
+        """Stock, sales and gross profit per product for a business day or date range. Back office only."""
+        start, end = table.period(request.query_params)
+        rows = table.sort_rows(table.rows_for(table.base_queryset(request.query_params), start, end),
+                               request.query_params.get("ordering", "name"))
+        summary = table.totals(rows)
+
+        if request.query_params.get("download") == "csv":
+            response = HttpResponse(content_type="text/csv; charset=utf-8")
+            response["Content-Disposition"] = f'attachment; filename="meriba_products_{start}_to_{end}.csv"'
+            response.write("﻿")
+            writer = csv.writer(response)
+            writer.writerow(["MERIBA product table", f"{start} to {end}"])
+            writer.writerow(["Product Name", "Sold By", "Volume (ml)", "Total Item Stock", "Sales", "Closing Stock", "Purchase Price",
+                             "Selling Price", "Total Sales", "Profit", "Stock", "Notes"])
+            for r in rows:
+                notes = []
+                if r["profit_status"] == "UNAVAILABLE":
+                    notes.append("Profit not available: no reliable purchase cost for some sales")
+                if r["profit_status"] == "PROVISIONAL" or r["purchase_price_provisional"]:
+                    notes.append("Provisional: rests on an assumed purchase cost")
+                if not r["is_active"]:
+                    notes.append("Not on sale")
+                writer.writerow([r["name"], r["sold_by"], r["volume_ml"] or "", _plain(r["total_item_stock"]), _plain(r["sales"]),
+                                 _plain(r["closing_stock"]), "" if r["purchase_price"] is None else _plain(r["purchase_price"].quantize(Decimal("0.01"))),
+                                 _plain(r["selling_price"]), _plain(r["total_sales"]), "" if r["profit"] is None else _plain(r["profit"]),
+                                 _plain(r["stock"]), "; ".join(notes)])
+            writer.writerow(["TOTAL", "", "", "", "", "", "", "", _plain(summary["total_sales"]), _plain(summary["profit"]), "",
+                             f"Profit not available for {summary['profit_unavailable_for']} product(s)" if summary["profit_unavailable_for"] else ""])
+            audit(request.user, "report.exported", summary=f"Exported the product table {start} to {end}")
+            return response
+
+        try:
+            size = min(max(int(request.query_params.get("page_size", 25)), 1), 500)
+            page = max(int(request.query_params.get("page", 1)), 1)
+        except ValueError:
+            raise BusinessRuleError("The page number is not valid.", code="bad_page", status_code=400)
+        chunk = rows[(page - 1) * size: page * size]
+        return Response({
+            "date_from": start, "date_to": end, "count": len(rows), "page": page, "page_size": size,
+            "pages": max(1, -(-len(rows) // size)),
+            "results": [{k: _plain(v) for k, v in row.items()} for row in chunk],
+            "totals": {k: _plain(v) for k, v in summary.items()},
+            "sold_by_options": SoldBy.values,
+        })
+
+    @extend_schema(responses={200: dict})
+    @action(detail=True, url_path="details")
+    def details(self, request, pk=None):
+        """One product in full: package configuration, period figures, stock movements, purchase and price history."""
+        from finance.models import GoodsReceiptLine
+
+        product = self.get_object()
+        start, end = table.period(request.query_params)
+        figures = table.rows_for([product], start, end)[0]
+        movements = InventoryMovement.objects.filter(product=product, branch=get_branch()).select_related("user")[:40]
+        purchases = GoodsReceiptLine.objects.filter(product=product).select_related("receipt__supplier").order_by("-id")[:25]
+        changes = AuditLog.objects.filter(entity_type="Product", entity_id=str(product.pk),
+                                          action__in=["product.price_changed", "product.package_changed", "product.unit_added",
+                                                      "product.unit_changed", "product.unit_verified"])[:25]
+        return Response({
+            "product": ProductManageSerializer(product).data,
+            "date_from": start, "date_to": end,
+            "figures": {k: _plain(v) for k, v in figures.items()},
+            "movements": [{"id": m.pk, "date": m.business_date, "created_at": m.created_at, "type": m.get_movement_type_display(),
+                           "change": _plain(m.quantity_delta), "balance_after": _plain(m.balance_after),
+                           "by": m.user.display_name, "reason": m.reason} for m in movements],
+            "purchases": [{"date": line.receipt.business_date, "supplier": line.receipt.supplier.name if line.receipt.supplier else "",
+                           "reference": line.receipt.reference, "quantity": _plain(line.quantity), "unit_cost": _plain(line.unit_cost),
+                           "average_before": _plain(line.average_cost_before), "average_after": _plain(line.average_cost_after)}
+                          for line in purchases],
+            "changes": [{"when": c.created_at, "by": c.actor_username, "what": c.summary, "before": c.before, "after": c.after}
+                        for c in changes],
+        })
+
+    # --- Extra packages (for example a crate of 12 bottles) -------------------------------------
 
     @extend_schema(request=ProductUnitSerializer, responses=ProductUnitSerializer)
     @action(detail=True, methods=["post"], url_path="units")
@@ -186,18 +327,57 @@ class ProductViewSet(viewsets.ModelViewSet):
         product = self.get_object()
         ser = ProductUnitSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
+        name = ser.validated_data["name"]
+        if name == product.base_unit:
+            raise BusinessRuleError(f"This product is already sold by the {name.lower()}. Choose a different package.",
+                                    code="same_unit", status_code=400)
+        if product.units.filter(name=name).exists():
+            raise BusinessRuleError(f"This product already has a {name.lower()} package. Change that one instead.",
+                                    code="unit_exists", status_code=400)
         unit = ser.save(product=product)
-        audit(request.user, "product.unit_added", product, summary=f"Added unit '{unit.name}' x{unit.factor} to '{product}'")
+        audit(request.user, "product.unit_added", product,
+              summary=f"Added package to '{product}': 1 {unit.name} = {_plain(unit.factor)} {product.base_unit}(s). Waiting for the Owner to verify.",
+              after={"unit": unit.name, "factor": unit.factor, "selling_price": unit.selling_price})
         return Response(ProductUnitSerializer(unit).data, status=201)
+
+    @extend_schema(request=UnitChangeSerializer, responses=ProductUnitSerializer)
+    @action(detail=True, methods=["patch"], url_path=r"units/(?P<unit_id>\d+)")
+    def change_unit(self, request, pk=None, unit_id=None):
+        """Change a package. A new conversion figure must be verified again by the Owner before it can be sold.
+        Past sales are untouched: each sale line keeps the figure it was sold with."""
+        product = self.get_object()
+        ser = UnitChangeSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        with transaction.atomic():
+            unit = ProductUnit.objects.select_for_update().filter(pk=unit_id, product=product).first()
+            if unit is None:
+                raise BusinessRuleError("We could not find that package.", code="not_found", status_code=404)
+            before = {"factor": unit.factor, "selling_price": unit.selling_price, "is_active": unit.is_active, "is_verified": unit.is_verified}
+            data = ser.validated_data
+            if "factor" in data and data["factor"] != unit.factor:
+                unit.factor = data["factor"]
+                unit.is_verified = False
+            if "selling_price" in data:
+                unit.selling_price = money(data["selling_price"])
+            if "is_active" in data:
+                unit.is_active = data["is_active"]
+            unit.save()
+            after = {"factor": unit.factor, "selling_price": unit.selling_price, "is_active": unit.is_active, "is_verified": unit.is_verified}
+            if before != after:
+                audit(request.user, "product.unit_changed", product, summary=f"Changed the {unit.name.lower()} package of '{product}'",
+                      before=before, after=after)
+        return Response(ProductUnitSerializer(unit).data)
 
     @extend_schema(request=None, responses=ProductUnitSerializer)
     @action(detail=True, methods=["post"], url_path=r"units/(?P<unit_id>\d+)/verify")
     def verify_unit(self, request, pk=None, unit_id=None):
         if not request.user.is_owner:
             self.permission_denied(request)
-        unit = ProductUnit.objects.get(pk=unit_id, product=self.get_object())
+        unit = ProductUnit.objects.filter(pk=unit_id, product=self.get_object()).first()
+        if unit is None:
+            raise BusinessRuleError("We could not find that package.", code="not_found", status_code=404)
         unit.is_verified = True
         unit.save(update_fields=["is_verified"])
         audit(request.user, "product.unit_verified", unit.product,
-              summary=f"Verified that 1 {unit.name} = {unit.factor} {unit.product.base_unit}")
+              summary=f"Verified that 1 {unit.name} = {_plain(unit.factor)} {unit.product.base_unit}(s)")
         return Response(ProductUnitSerializer(unit).data)

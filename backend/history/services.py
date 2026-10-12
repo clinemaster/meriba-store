@@ -466,7 +466,9 @@ def decide_rows(*, user, row_ids, action, classification="", reason=""):
 def decide_source_product(*, owner, source_product_id, approve, note="", confirmed_name="", confirmed_unit="",
                           confirmed_package_size="", product=None, create_product=False, selling_price=None, cost_price=None):
     """Owner's decision on one line of the Product Mapping Review."""
-    from catalog.models import Product
+    import re
+
+    from catalog.models import Product, SoldBy
 
     sp = SourceProduct.objects.select_for_update().filter(pk=source_product_id).first()
     if sp is None:
@@ -484,14 +486,23 @@ def decide_source_product(*, owner, source_product_id, approve, note="", confirm
         confirmed_name, confirmed_unit = (confirmed_name or "").strip(), (confirmed_unit or "").strip()
         if not confirmed_name or not confirmed_unit:
             raise _bad("Confirm the product name and the unit it is counted and sold in.", "identity_required")
+        # The unit must be one of the approved selling units; free text is not accepted.
+        approved_units = {unit.lower(): unit for unit in SoldBy.values}
+        if confirmed_unit.lower() not in approved_units:
+            raise _bad("Choose the unit from the list: " + ", ".join(SoldBy.values) + ".", "bad_unit")
+        confirmed_unit = approved_units[confirmed_unit.lower()]
         if product is None and not create_product:
             raise _bad("Choose an existing product, or choose to create a new one.", "mapping_required")
         if create_product:
             price = money(selling_price) if selling_price is not None else Decimal("0.00")
             last = Product.objects.order_by("-id").values_list("id", flat=True).first() or 0
+            size_text = (confirmed_package_size or "").strip()[:40]
+            # A volume is recorded only when the Owner's confirmed size is plainly a number of millilitres.
+            millilitres = re.fullmatch(r"(\d{1,5})\s*mls?\.?", size_text, re.IGNORECASE)
             product = Product.objects.create(
-                sku=f"P{last + 1:05d}", name=confirmed_name, package_size=(confirmed_package_size or "").strip()[:40],
-                pack_description=sp.pack_text[:60], base_unit=confirmed_unit[:30], selling_price=price,
+                sku=f"P{last + 1:05d}", name=confirmed_name, package_size=size_text,
+                volume_ml=int(millilitres.group(1)) if millilitres and int(millilitres.group(1)) > 0 else None,
+                pack_description=sp.pack_text[:60], base_unit=confirmed_unit, selling_price=price,
                 cost_price=None if cost_price is None else money(cost_price),
                 # No approved selling price means the product exists but cannot be sold.
                 is_active=price > 0,

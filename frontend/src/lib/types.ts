@@ -10,6 +10,30 @@ export type Product = {
   package_size: string; pack_description: string; base_unit: string; barcode: string; selling_price: string;
   is_active: boolean; stock_on_hand: string; stock_status: "IN_STOCK" | "LOW_STOCK" | "OUT_OF_STOCK";
   cost_price?: string | null; reorder_point?: string; target_stock?: string;
+  volume_ml: number | null; bottles_per_unit: number | null;
+  average_cost?: string | null; cost_provisional?: boolean;
+  units: { id: number; name: string; factor: string; selling_price: string; is_verified: boolean; is_active: boolean }[];
+};
+
+/** One line of the product table. Amounts and quantities arrive as plain number text; blank means "not known". */
+export type ProductRow = {
+  id: number; sku: string; name: string; sold_by: string; volume_ml: number | null; bottles_per_unit: number | null; is_active: boolean;
+  opening_stock: string; incoming: string; other_out: string; total_item_stock: string; sales: string; closing_stock: string;
+  purchase_price: string | null; purchase_price_provisional: boolean; purchase_price_entered: string | null; selling_price: string;
+  total_sales: string; cost_of_goods_sold: string | null; profit: string | null; profit_status: "OK" | "PROVISIONAL" | "UNAVAILABLE"; stock: string;
+};
+
+export type ProductTable = {
+  date_from: string; date_to: string; count: number; page: number; page_size: number; pages: number; results: ProductRow[];
+  totals: { total_sales: string; profit: string; profit_unavailable_for: number; profit_provisional_for: number };
+  sold_by_options: string[];
+};
+
+export type ProductDetails = {
+  product: Product; date_from: string; date_to: string; figures: ProductRow;
+  movements: { id: number; date: string; created_at: string; type: string; change: string; balance_after: string; by: string; reason: string }[];
+  purchases: { date: string; supplier: string; reference: string; quantity: string; unit_cost: string | null; average_before: string | null; average_after: string | null }[];
+  changes: { when: string; by: string; what: string; before: unknown; after: unknown }[];
 };
 
 export type PaymentMethod = { id: number; code: string; name: string; is_cash: boolean; reference_label: string; is_active: boolean };

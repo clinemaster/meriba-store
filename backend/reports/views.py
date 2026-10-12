@@ -62,22 +62,32 @@ def sales_by_product(params):
     start, end = _range(params)
     sold = (SaleItem.objects.filter(sale__status=Sale.Status.COMPLETED, sale__business_day__date__range=(start, end))
             .values("product", "product__name", "product__package_size", "product__sku")
-            .annotate(quantity=Sum("quantity_base"), value=Sum("line_total")).order_by("-value"))
+            .annotate(quantity=Sum("quantity_base"), value=Sum("line_total"), cost=Sum("cost_total"),
+                      no_cost=Count("id", filter=Q(cost_total__isnull=True))).order_by("-value"))
     returned = {r["sale_item__product"]: r for r in RefundItem.objects.filter(refund__business_day__date__range=(start, end))
-                .values("sale_item__product").annotate(quantity=Sum("quantity_base"), value=Sum("amount"))}
-    rows = []
-    for s in sold:
-        back = returned.pop(s["product"], {"quantity": ZERO, "value": ZERO})
-        rows.append({"code": s["product__sku"], "product": f"{s['product__name']} {s['product__package_size']}".strip(),
-                     "quantity": s["quantity"], "value": s["value"], "refunded_quantity": back["quantity"],
-                     "refunded_value": back["value"], "net_value": s["value"] - back["value"]})
+                .values("sale_item__product").annotate(quantity=Sum("quantity_base"), value=Sum("amount"), cost=Sum("cost_returned"),
+                                                       no_cost=Count("id", filter=Q(cost_returned__isnull=True)))}
+    nothing = {"quantity": ZERO, "value": ZERO, "cost": ZERO, "no_cost": 0}
+
+    def line(code, name, s, back):
+        net = (s["value"] or ZERO) - (back["value"] or ZERO)
+        # Gross profit = net sales − cost of goods sold (cost frozen at the time of each sale).
+        # Left empty, not guessed, where a sale had no reliable purchase cost.
+        known = not s["no_cost"] and not back["no_cost"]
+        cost = (s["cost"] or ZERO) - (back["cost"] or ZERO) if known else None
+        return {"code": code, "product": name, "quantity": s["quantity"], "value": s["value"],
+                "refunded_quantity": back["quantity"], "refunded_value": back["value"], "net_value": net,
+                "cost_of_goods": cost, "gross_profit": None if cost is None else net - cost}
+
+    rows = [line(s["product__sku"], f"{s['product__name']} {s['product__package_size']}".strip(), s, returned.pop(s["product"], nothing))
+            for s in sold]
     for pk, back in returned.items():  # refunded in this period but sold in an earlier one
         p = Product.objects.get(pk=pk)
-        rows.append({"code": p.sku, "product": str(p), "quantity": ZERO, "value": ZERO, "refunded_quantity": back["quantity"],
-                     "refunded_value": back["value"], "net_value": -back["value"]})
+        rows.append(line(p.sku, str(p), nothing, back))
     cols = [col("code", "Code"), col("product", "Product"), col("quantity", "Quantity sold", Q3), col("value", "Sales value", M),
-            col("refunded_quantity", "Quantity refunded", Q3), col("refunded_value", "Refunds", M), col("net_value", "Net value", M)]
-    return cols, rows, ["quantity", "value", "refunded_quantity", "refunded_value", "net_value"]
+            col("refunded_quantity", "Quantity refunded", Q3), col("refunded_value", "Refunds", M), col("net_value", "Net value", M),
+            col("cost_of_goods", "Cost of goods sold", M), col("gross_profit", "Gross profit", M)]
+    return cols, rows, ["quantity", "value", "refunded_quantity", "refunded_value", "net_value", "cost_of_goods", "gross_profit"]
 
 
 def sales_by_cashier(params):
@@ -127,7 +137,8 @@ def _stock_rows(only_low=False):
             "target_stock": p.target_stock,
             "status": {"IN_STOCK": "In stock", "LOW_STOCK": "Low stock", "OUT_OF_STOCK": "Out of stock"}[status],
             "suggested_order": max(p.target_stock - qty, ZERO),  # FR-LOW-04: never negative
-            "cost_price": p.cost_price, "stock_value": None if p.cost_price is None else qty * p.cost_price,
+            # Valued at the weighted-average cost of what is in stock, not at the latest purchase price.
+            "cost_price": p.average_cost, "stock_value": None if p.average_cost is None else qty * p.average_cost,
         })
     return rows
 
@@ -135,7 +146,7 @@ def _stock_rows(only_low=False):
 def stock_on_hand(params):
     rows = _stock_rows()
     cols = [col("code", "Code"), col("product", "Product"), col("unit", "Counted by"), col("quantity", "In stock", Q3),
-            col("status", "Status"), col("cost_price", "Cost each", M), col("stock_value", "Value at cost", M)]
+            col("status", "Status"), col("cost_price", "Purchase Price (average)", M), col("stock_value", "Value at cost", M)]
     return cols, rows, ["stock_value"]
 
 

@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import IsOwnerOrAccountant
+from catalog import costing
 from catalog.models import Product
 from core.errors import BusinessRuleError
 from core.services import audit, get_branch, get_settings, money
@@ -98,12 +99,15 @@ def receive_stock(*, user, request_key, lines, supplier=None, reference="", note
         line_cost = None if unit_cost is None else money(qty * unit_cost)
         all_costed = all_costed and line_cost is not None
         total += line_cost or 0
-        GoodsReceiptLine.objects.create(receipt=receipt, product=product, quantity=qty, unit_cost=unit_cost, line_cost=line_cost)
-        post_movement(
+        movement = post_movement(
             branch=branch, product=product, delta=qty, movement_type=InventoryMovement.Type.RECEIPT,
             source_type="GoodsReceipt", source_id=receipt.pk, user=user, business_date=business_date,
             reason=f"Received from {supplier}" if supplier else "Stock received",
         )
+        # Weighted-average cost: blended with what was already in stock, never simply replaced by this price.
+        average_before, average_after = costing.received(product.pk, movement.balance_before, qty, unit_cost)
+        GoodsReceiptLine.objects.create(receipt=receipt, product=product, quantity=qty, unit_cost=unit_cost, line_cost=line_cost,
+                                        average_cost_before=average_before, average_cost_after=average_after)
         if update_cost_price and unit_cost is not None and product.cost_price != unit_cost:
             old = product.cost_price
             product.cost_price = unit_cost

@@ -107,3 +107,45 @@ Mandatory controls confirmed with the policy, and where each lives:
 1. **Your decisions on the exceptions above**, made in the Excel History screens (or tell me and I will note them for you to enter).
 2. **A physical stock count** of every product, entered on the count sheet and approved by you.
 3. **The verified opening cumulative sales balance** and its cutover date — or your explicit confirmation that tracking starts fresh from zero.
+## Product table enhancement (12 Oct 2026)
+
+Built as specified: the Products screen shows Product Name, Sold By, Volume (ml), Total Item Stock, Sales, Closing
+Stock, Purchase Price, Selling Price, Total Sales, Profit and Stock, for a business day or a date range, with search,
+sorting, pagination, a details view and CSV export. Cost and profit are for the Owner and Accountant only.
+
+### How the figures are defined
+
+| Column | Definition in the system |
+|---|---|
+| Total Item Stock | Opening stock for the period + deliveries, returns to the shelf, and counts that added stock |
+| Sales | Quantity sold in the period, in the product's Sold By unit. A cancelled sale is not a sale. A crate sold from a bottle product counts as its bottles |
+| Closing Stock | Opening + stock in − sales − breakages and other stock out. For a simple day: Total Item Stock − Sales |
+| Purchase Price | Weighted-average cost of the units now in stock, per Sold By unit |
+| Selling Price | The current selling price |
+| Total Sales | Completed sales in the period, at the prices actually charged, less refunds given in the period |
+| Profit | Gross profit: Total Sales − cost of goods sold. Expenses are not taken off |
+| Stock | The live balance from the stock ledger |
+
+### Decisions I made that need your confirmation
+
+| # | Topic | What the system does | Why |
+|---|---|---|---|
+| P1 | **The internal stock unit** | Each product's stock is kept in its own Sold By unit (your earlier decision D3: one unit per product, as in the Excel). A Konyagi counted in bottles is kept in bottles; a Safari counted in crates is kept in crates | You wrote "preferably individual bottles or another approved base unit". Converting crate products to bottles would change every count sheet and price. Tell me if you want that instead |
+| P2 | **Package configuration** | Two separate things: (a) "bottles in one crate" on a crate product, used to show the bottle equivalent; (b) an extra package on a product, e.g. "also sell by the crate of 12", with its own price. Selling one crate takes 12 bottles out of stock. Each product has its own figure | Covers both "a product sold as a crate" and "a product sold in several package sizes" |
+| P3 | **Who configures packages** | Owner or Accountant adds or changes a package; **only the Owner verifies** it, and it cannot be sold until verified. Changing the number resets verification. Every sale line keeps the number it was sold with | So a change can never alter past sales or stock |
+| P4 | **Changing Sold By** | Refused once a product has stock, sales or packages | Its recorded quantities would silently change meaning |
+| P5 | **Costing method** | Weighted average, recalculated on each delivery: (in stock × old average + received × delivery cost) ÷ (in stock + received). The latest price is never applied to stock already held | As you specified |
+| P6 | **Cost of opening stock** | Valued at the Purchase Price entered on the product when the Owner approves the count. If none is entered, cost is unknown | There are no delivery records for opening stock |
+| P7 | **A delivery recorded with no cost** | Carried at the existing average, and the product is marked **provisional**; profit on what is sold from it shows "(provisional)" | Rather than invent a cost or drop the profit figure |
+| P8 | **No reliable cost at all** | Purchase Price shows "Not known" and Profit shows "Not available" for affected sales; they are left out of the profit total and counted in a warning | Never guessed |
+| P9 | **Refunds and cancellations in profit** | A cancelled sale counts in neither sales nor cost. A refund reduces Total Sales on the day it is given. Goods put back on the shelf take their cost back; **damaged goods stay a cost** | Consistent with your decision D6 |
+| P10 | **The "Purchase Price" you type on a product** | Kept as the last purchase price entered. It starts the average for opening stock. It does not overwrite the average afterwards unless you tick "also update purchase price" on a delivery | So typing a new price cannot rewrite the cost of stock already bought |
+| P11 | **Volume from existing size text** | Your two existing products had sizes "750 mls" and "200 mls"; these were read as 750 and 200 ml. Anything not plainly a number of millilitres is left blank for you to enter | No volume is invented |
+| P12 | **Adding a unit such as "Single"** | A developer adds it to the approved list and runs a migration; the database then accepts it. There is no screen for adding units | You asked for "approved configuration or migration" |
+
+### What is not done
+
+- The **stock on hand report** and the **Excel history mapping** use the new fields, but the Excel mapping asks for the
+  size as text ("750ml") rather than a separate volume box.
+- **Category** and **brand** exist on a product but are not shown in the table or the form.
+- The "supplier pack" text field is no longer on the product form (it is still stored for products that have it).

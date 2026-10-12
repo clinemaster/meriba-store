@@ -161,7 +161,7 @@ test("owner maps source products; nothing is merged, guessed or given stock", as
     const dialog = await decide(rowText);
     await dialog.getByRole("button", { name: "Approve this mapping" }).click();
     await expect(dialog.getByRole("alert")).toContainText("Confirm the product name and the unit"); // the unit is never assumed
-    await dialog.getByLabel("Unit counted and sold in").fill(unit);
+    await dialog.getByLabel("Unit counted and sold in").selectOption(unit);
     await dialog.getByLabel("It is a product that already exists").check();
     const select = dialog.getByLabel("Existing product");
     const value = await select.locator("option", { hasText: liveName }).getAttribute("value");
@@ -175,7 +175,7 @@ test("owner maps source products; nothing is merged, guessed or given stock", as
 
   // mkwawa: created without a price, so it exists but is not on sale
   let dialog = await decide("mkwawa");
-  await dialog.getByLabel("Unit counted and sold in").fill("Carton");
+  await dialog.getByLabel("Unit counted and sold in").selectOption("Carton");
   await expect(dialog.getByLabel("Approved selling price (TZS)")).toHaveValue("");
   await dialog.getByRole("button", { name: "Approve this mapping" }).click();
   await expect(page.getByRole("dialog")).toBeHidden();
@@ -243,7 +243,7 @@ test("owner accepts the history; live stock was never touched", async ({ page })
   // the historical figures (Konyagi closing 60, Safari 20) changed nothing in the live system
   await page.getByRole("link", { name: "Products", exact: true }).first().click();
   await expect(page.getByRole("heading", { level: 1, name: "Products" })).toBeVisible();
-  await expect(page.getByRole("row").filter({ hasText: "Konyagi ndogo" })).toContainText("71");
+  await expect(page.getByRole("row").filter({ hasText: "Konyagi ndogo" })).toContainText("59");
   const mkwawa = page.getByRole("row").filter({ hasText: "mkwawa" });
   await expect(mkwawa).toContainText("No price");
   await expect(mkwawa).toContainText("Switched off");

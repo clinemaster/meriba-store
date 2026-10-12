@@ -122,10 +122,22 @@ def create_sale(*, cashier, request_key, items, payments) -> tuple[Sale, bool]:
         receipt_number=f"{day.branch.code}-{day.date:%Y%m%d}-{day.last_receipt_seq:04d}",
         subtotal=subtotal, discount_total=ZERO, total=total, amount_tendered=total + change, change_due=change,
     )
+    # Cost of goods sold is frozen now, from each product's weighted-average cost. A later delivery or
+    # price change cannot alter the cost or profit of this sale. Unknown cost stays unknown.
+    from catalog.models import Product
+
+    costs = {pk: (average, provisional) for pk, average, provisional in
+             Product.objects.filter(pk__in=[line["product"].pk for line in lines]).values_list("pk", "average_cost", "cost_provisional")}
+    for line in lines:
+        average, provisional = costs[line["product"].pk]
+        line["unit_cost"] = None if average is None else average * line["factor"]
+        line["cost_total"] = None if average is None else money(line["quantity_base"] * average)
+        line["cost_provisional"] = bool(provisional) and average is not None
     SaleItem.objects.bulk_create([
         SaleItem(sale=sale, product=line["product"], product_name=str(line["product"]), unit_name=line["unit_name"],
                  unit_factor=line["factor"], quantity=line["quantity"], quantity_base=line["quantity_base"],
-                 unit_price=line["price"], line_total=line["line_total"])
+                 unit_price=line["price"], line_total=line["line_total"], unit_cost=line["unit_cost"],
+                 cost_total=line["cost_total"], cost_provisional=line["cost_provisional"])
         for line in lines
     ])
     Payment.objects.bulk_create([Payment(sale=sale, **row) for row in payment_rows])
@@ -252,8 +264,16 @@ def refund_sale(*, sale_id, actor, request_key, lines, method, reason, shift=Non
             )
         amount = money(quantity * item.unit_price)
         total += amount
+        restock = bool(line.get("restock", True))
+        # Goods put back on the shelf take their cost back with them; damaged goods remain a cost.
+        if not restock:
+            cost_returned = ZERO
+        elif item.unit_cost is None:
+            cost_returned = None
+        else:
+            cost_returned = money(quantity * item.unit_cost)
         rows.append({"item": item, "quantity": quantity, "base": quantity * item.unit_factor, "amount": amount,
-                     "restock": bool(line.get("restock", True))})
+                     "restock": restock, "cost_returned": cost_returned})
     if len({r["item"].pk for r in rows}) != len(rows):
         raise _bad("Each item can appear only once in a refund.", "duplicate_item")
 
@@ -263,7 +283,7 @@ def refund_sale(*, sale_id, actor, request_key, lines, method, reason, shift=Non
     )
     RefundItem.objects.bulk_create([
         RefundItem(refund=refund, sale_item=r["item"], quantity=r["quantity"], quantity_base=r["base"],
-                   amount=r["amount"], restocked=r["restock"]) for r in rows
+                   amount=r["amount"], restocked=r["restock"], cost_returned=r["cost_returned"]) for r in rows
     ])
     back: dict[int, dict] = {}
     for r in rows:

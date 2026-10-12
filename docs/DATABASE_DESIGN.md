@@ -142,3 +142,29 @@ explicit price type.
 - A **correction** changes a closed day's `adjustments`, `net_sales` and `closing_cumulative_sales`, and the opening
   and closing balances of later days. The gross, void and refund figures stay as closed, and `trading_daycorrection`
   keeps the before and after values, so the original closing result can always be read back.
+
+## Product table enhancement (migrations `catalog 0002`, `0003`, `sales 0005`, `finance 0002`)
+
+| Table | New column | Meaning |
+|---|---|---|
+| `catalog_product` | `base_unit` (now restricted) | "Sold By": one of Crate, Carton, Box, Bottle, Pack. Every quantity of the product is in this unit |
+| | `volume_ml` | Volume of one bottle, in millilitres; blank if not applicable or not verified |
+| | `bottles_per_unit` | Bottles in one Sold By unit (per product; nothing assumes all crates are alike) |
+| | `average_cost` | Weighted-average cost of the units in stock; maintained by the system; blank = no reliable cost |
+| | `cost_provisional` | True when part of the average rests on an assumed cost |
+| `catalog_productunit` | `name` (now restricted) | An extra package, from the same approved list |
+| `sales_saleitem` | `unit_cost`, `cost_total`, `cost_provisional` | Cost of goods sold, frozen at the moment of sale. Blank = unknown |
+| `sales_refunditem` | `cost_returned` | Cost of goods put back on the shelf (zero for damaged goods) |
+| `finance_goodsreceiptline` | `average_cost_before`, `average_cost_after` | The purchase-cost history: what each delivery did to the average |
+
+New rules enforced by the database: `product_sold_by_is_approved_unit`, `product_unit_is_approved_unit`,
+`product_volume_positive`, `product_bottles_per_unit_positive`, `product_average_cost_not_negative`.
+
+**Existing data was carried forward, not remapped.** The migration keeps a unit only if it is on the approved list
+(ignoring capitals); otherwise it stops and lists the products for a person to decide. Volume is taken from the size
+text only when that text is plainly millilitres. The real database was backed up first
+(`C:\MeribaBackups\…_before_product_table.dump`); it held two products and no transactions.
+
+**Why history cannot be rewritten.** A sale line stores its own price, package factor and cost. Changing a selling
+price, a purchase price or a package later changes none of those, so past receipts, Total Sales and Profit stay as
+they were. Tests cover each case.

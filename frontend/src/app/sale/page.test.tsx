@@ -19,10 +19,12 @@ const savedSale = {
 const json = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }));
 let salePosts: { request_key: string; items: unknown[]; payments: { amount: string }[] }[];
 let saleResponder: () => Promise<Response>;
+let products: unknown[];
 
 beforeEach(() => {
   document.cookie = "csrftoken=test-token";
   salePosts = [];
+  products = [product];
   saleResponder = () => json(savedSale, 201);
   vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
     if (url.includes("/sales/") && init?.method === "POST") {
@@ -35,7 +37,7 @@ beforeEach(() => {
       { id: 2, code: "mobile-money", name: "Mobile Money", is_cash: false, reference_label: "Transaction ID", is_active: true },
     ]);
     if (url.includes("/settings/")) return json({ branch_name: "MERIBA Main Branch", receipt_header: "MERIBA STORE", receipt_footer: "", split_payments_enabled: true });
-    if (url.includes("/products/")) return json({ count: 1, next: null, previous: null, results: [product] });
+    if (url.includes("/products/")) return json({ count: products.length, next: null, previous: null, results: products });
     return json({ message: "not mocked" }, 404);
   }));
 });
@@ -110,5 +112,31 @@ describe("New Sale screen", () => {
 
     await user.click(screen.getByRole("button", { name: "Next Sale" }));
     expect(screen.getByTestId("sale-total")).toHaveTextContent("TZS 0");
+  });
+
+  it("sells a verified package, counting stock in bottles across the bottle and crate lines", async () => {
+    const user = userEvent.setup();
+    products = [{ ...product, stock_on_hand: "30.000",
+      units: [{ id: 9, name: "Crate", factor: "12.000", selling_price: "50000.00", is_verified: true, is_active: true }] }];
+    render(<NewSalePage />);
+    const crate = await screen.findByRole("button", { name: /Sell a whole crate of Konyagi ndogo \(12 bottles\)/ });
+    const bottle = screen.getByRole("button", { name: /Konyagi ndogo 200ml.*in stock/ });
+    await user.click(crate);
+    await user.click(crate); // 24 bottles
+    await user.click(bottle); // + 1 = 25
+    expect(screen.getByLabelText("Quantity of Konyagi ndogo 200ml (Crate of 12)")).toHaveValue("2");
+    expect(screen.getByTestId("sale-total")).toHaveTextContent("TZS 104,500"); // 2 x 50,000 + 4,500
+
+    await user.click(crate); // a third crate would need 37 bottles; only 30 exist
+    expect(screen.getByLabelText("Quantity of Konyagi ndogo 200ml (Crate of 12)")).toHaveValue("2");
+    expect(screen.getByRole("alert")).toHaveTextContent("Only 30 of Konyagi ndogo left in stock.");
+    const bottles = screen.getByLabelText("Quantity of Konyagi ndogo 200ml");
+    await user.clear(bottles);
+    await user.type(bottles, "9"); // 24 + 9 = 33: more than 30, so it is held at the 6 that are left
+    expect(bottles).toHaveValue("6");
+
+    await user.click(screen.getByRole("button", { name: /Complete Sale/ }));
+    await waitFor(() => expect(salePosts).toHaveLength(1));
+    expect(salePosts[0].items).toEqual([{ product: 7, quantity: 2, unit: 9 }, { product: 7, quantity: 6 }]);
   });
 });

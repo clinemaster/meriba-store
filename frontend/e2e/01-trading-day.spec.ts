@@ -51,24 +51,38 @@ test("owner sets up the shop and goes live", async ({ page }) => {
   // Products
   await page.getByRole("link", { name: "Products", exact: true }).first().click();
   for (const p of [
-    { name: "Konyagi ndogo", size: "200ml", unit: "Bottle", price: "4500", cost: "3750" },
-    { name: "Safari Kubwa", size: "", unit: "Crate", price: "36000", cost: "34000" },
+    { name: "Konyagi ndogo", volume: "200", unit: "Bottle", bottles: "", price: "4500", cost: "3750" },
+    { name: "Safari Kubwa", volume: "500", unit: "Crate", bottles: "25", price: "36000", cost: "34000" },
   ]) {
     await page.getByRole("button", { name: "+ Add Product" }).click();
+    const form = page.getByRole("dialog");
     // typed key by key, as a person would: the cursor must stay in the box while the window re-draws
-    await page.getByLabel("Product name").click();
+    await form.getByLabel("Product Name").click();
     await page.keyboard.type(p.name, { delay: 15 });
-    await expect(page.getByLabel("Product name")).toHaveValue(p.name);
-    await page.getByLabel("Size").fill(p.size);
-    await page.getByLabel("Sold and counted by").fill(p.unit);
-    await page.getByLabel("Selling price (TZS)").fill(p.price);
-    await page.getByLabel("Purchase cost (TZS)").fill(p.cost);
-    await page.getByRole("button", { name: "Save Product" }).click();
+    await expect(form.getByLabel("Product Name")).toHaveValue(p.name);
+    // Sold By is a fixed list, not free text
+    await expect(form.getByLabel("Sold By").locator("option")).toHaveText(["Bottle", "Crate", "Carton", "Box", "Pack"]);
+    await form.getByLabel("Sold By").selectOption(p.unit);
+    await form.getByLabel("Volume (ml)").fill(p.volume);
+    if (p.bottles) await form.getByLabel("Bottles in one crate").fill(p.bottles);
+    await form.getByLabel("Selling Price (TZS)").fill(p.price);
+    await form.getByLabel("Purchase Price (TZS)").fill(p.cost);
+    await form.getByRole("button", { name: "Save Product" }).click();
+    await expect(page.getByRole("dialog")).toBeHidden();
     await expect(page.getByRole("cell", { name: new RegExp(p.name) })).toBeVisible();
   }
+  // the table shows the agreed columns, in the agreed order
+  await expect(page.getByRole("columnheader")).toHaveText([
+    /^Product Name/, /^Sold By/, /^Volume \(ml\)/, /^Total Item Stock/, /^Sales/, /^Closing Stock/, /^Purchase Price/, /^Selling Price/,
+    /^Total Sales/, /^Profit/, /^Stock/, /^Actions/]);
+  const safariRow = page.getByRole("row").filter({ hasText: "Safari Kubwa" });
+  await expect(safariRow).toContainText("Crate");
+  await expect(safariRow).toContainText("25 bottles");
+  await expect(safariRow).toContainText("500 ml");
+  await expect(safariRow).toContainText("Not known"); // no stock yet, so no purchase cost to average
   // a product cannot be put on sale without a price
   await page.getByRole("button", { name: "+ Add Product" }).click();
-  await page.getByLabel("Product name").fill("mkwawa");
+  await page.getByRole("dialog").getByLabel("Product Name").fill("mkwawa");
   await page.getByRole("button", { name: "Save Product" }).click();
   await expect(page.getByRole("dialog").getByRole("alert")).toContainText("cannot be on sale without one");
   await page.getByRole("button", { name: "Cancel" }).click();
@@ -251,9 +265,55 @@ test("owner receives stock, refunds an item and records an expense during the da
 
   // Edit a product's price (confirmed), and check stock: 48 counted - 3 sold + 1 cancelled + 24 received + 1 returned = 71
   await openScreen(page, "Products", "Products");
-  await expect(page.getByRole("row").filter({ hasText: "Konyagi ndogo" })).toContainText("71");
+  // The product table for today. Konyagi: counted 48 + delivered 24 + returned 1 = 73 in; 2 sold (the cancelled sale
+  // is not a sale); 71 left. Sales 9,000 less the 4,500 refund; cost 3,750 a bottle; gross profit 750.
+  const konyagiRow = page.getByRole("row").filter({ hasText: "Konyagi ndogo" });
+  await expect(konyagiRow.getByRole("cell")).toHaveText([
+    "Konyagi ndogo", "Bottle", "200 ml", "73", "2", "71", "TZS 3,750", "TZS 4,500", "TZS 4,500", "TZS 750", "71", /Details/]);
+  // Safari: 10 crates counted, 1 sold, 1 broken, 8 left; sold for 36,000, cost 34,000
+  await expect(page.getByRole("row").filter({ hasText: "Safari Kubwa" }).getByRole("cell")).toHaveText([
+    "Safari Kubwa", /^Crate/, "500 ml", "10", "1", "8", "TZS 34,000", "TZS 36,000", "TZS 36,000", "TZS 2,000", "8", /Details/]);
+  await expect(page.getByRole("row").filter({ hasText: /^Total for all 2 products/ })).toContainText("TZS 40,500");
+  // sorting by a column
+  await page.getByRole("button", { name: /^Total Sales/ }).click();
+  await expect(page.getByRole("row").nth(1)).toContainText("Konyagi ndogo"); // smallest first
+  await page.getByRole("button", { name: /^Total Sales/ }).click();
+  await expect(page.getByRole("row").nth(1)).toContainText("Safari Kubwa"); // largest first
+  // searching
+  await page.getByLabel("Search").fill("kony");
+  await expect(page.getByRole("row").filter({ hasText: "Safari Kubwa" })).toHaveCount(0);
+  await page.getByLabel("Search").fill("");
+  await expect(page.getByRole("row").filter({ hasText: "Safari Kubwa" })).toHaveCount(1);
+  // export
+  const tableDownload = page.waitForEvent("download");
+  await page.getByRole("link", { name: /Download for Excel/ }).click();
+  expect((await tableDownload).suggestedFilename()).toMatch(/^meriba_products_.*\.csv$/);
+
+  // Product details: the day's figures, package configuration, movement and purchase history
+  await konyagiRow.getByRole("button", { name: "Details" }).click();
+  const details = page.getByRole("dialog");
+  await expect(details.getByRole("row").filter({ hasText: "= Total Item Stock" })).toContainText("73");
+  await expect(details.getByRole("row").filter({ hasText: "= Closing Stock" })).toContainText("71");
+  await expect(details.getByRole("row").filter({ hasText: "Gross profit" })).toContainText("TZS 750");
+  await expect(details).toContainText("each bottle is 200 ml");
+  await expect(details.getByRole("row").filter({ hasText: "Customer return" })).toContainText("+1");
+  await expect(details.getByRole("row").filter({ hasText: "Sale cancelled" })).toContainText("+1");
+  // add a package: one crate holds 12 bottles. It cannot be sold until the Owner verifies the figure.
+  await details.getByLabel("Package to add").selectOption("Crate");
+  await details.getByLabel("How many bottles it holds").fill("12");
+  await details.getByLabel("Selling price of the package").fill("50000");
+  await details.getByRole("button", { name: "Add package" }).click();
+  const crate = details.getByRole("row").filter({ hasText: "12 bottle(s)" });
+  await expect(crate).toContainText("Waiting for the Owner to verify");
+  await crate.getByRole("button", { name: "Verify" }).click();
+  await expect(crate).toContainText("Verified");
+  await expect(details).toContainText("Added package to 'Konyagi ndogo 200ml': 1 Crate = 12 Bottle(s)");
+  await details.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(page.getByRole("dialog")).toBeHidden();
+
+  // Edit a product's price (confirmed)
   await page.getByRole("row").filter({ hasText: "Safari Kubwa" }).getByRole("button", { name: "Edit" }).click();
-  await page.getByLabel("Selling price (TZS)").fill("37000");
+  await page.getByRole("dialog").getByLabel("Selling Price (TZS)").fill("37000");
   await page.getByRole("button", { name: "Save Product" }).click();
   await expect(page.getByRole("dialog")).toBeHidden();
   const safari = page.getByRole("row").filter({ hasText: "Safari Kubwa" });
@@ -281,21 +341,35 @@ test("owner receives stock, refunds an item and records an expense during the da
 
 test("cashier closes the day with the cash count", async ({ page }) => {
   await signIn(page, CASHIER.username, CASHIER.own);
+
+  // One more sale first: a whole crate of Konyagi, the package the Owner configured and verified (12 bottles)
+  await openScreen(page, "New Sale", "New Sale");
+  await page.getByLabel("1. Find the product").fill("kony");
+  await expect(page.getByRole("button", { name: /Konyagi ndogo 200ml.*71 Bottle in stock/ })).toBeVisible();
+  await page.getByRole("button", { name: /Sell a whole crate of Konyagi ndogo \(12 bottles\)/ }).click();
+  await expect(page.getByLabel("Quantity of Konyagi ndogo 200ml (Crate of 12)")).toHaveValue("1");
+  await expect(page.getByTestId("sale-total")).toHaveText("TZS 50,000");
+  await page.getByRole("button", { name: /Complete Sale/ }).click();
+  await expect(page.getByRole("dialog", { name: "Sale saved" })).toContainText("1 Crate x 50,000");
+  await page.getByRole("button", { name: "Next Sale" }).click();
+  await page.getByLabel("1. Find the product").fill("kony");
+  await expect(page.getByRole("button", { name: /Konyagi ndogo 200ml.*59 Bottle in stock/ })).toBeVisible(); // 71 - 12
+
   await page.getByRole("link", { name: "Close Day" }).first().click();
   await expect(page.getByRole("heading", { name: "Close Day" })).toBeVisible();
-  // float 100,000 + cash sales 15,000 - cash refund 4,500 - expense 1,000
-  await expect(page.getByText("TZS 109,500")).toBeVisible();
+  // float 100,000 + cash sales 65,000 - cash refund 4,500 - expense 1,000
+  await expect(page.getByText("TZS 159,500")).toBeVisible();
   const close = page.getByRole("button", { name: "Review and Close…" });
   await expect(close).toBeDisabled();
-  await page.getByLabel("Cash you counted (TZS)").fill("109000");
+  await page.getByLabel("Cash you counted (TZS)").fill("159000");
   await expect(page.getByText("Short by TZS 500")).toBeVisible();
   await expect(close).toBeDisabled(); // a difference needs a note
-  await page.getByLabel("Cash you counted (TZS)").fill("109500");
+  await page.getByLabel("Cash you counted (TZS)").fill("159500");
   await expect(page.getByText("No difference")).toBeVisible();
   await close.click();
   await page.getByRole("button", { name: "Yes, close my shift" }).click();
   await expect(page.getByText(/is closed\. No more sales can be added/)).toBeVisible();
-  await expect(page.getByText("Closing cumulative sales").locator("..")).toContainText("TZS 40,500"); // 45,000 sold - 4,500 refunded
+  await expect(page.getByText("Closing cumulative sales").locator("..")).toContainText("TZS 90,500"); // 95,000 sold - 4,500 refunded
 
   await page.goto("/sale");
   await expect(page.getByText("Start your day before making a sale")).toBeVisible();
@@ -314,15 +388,21 @@ test("owner reviews the closing and reads reports, audit history, settings and h
   await review.getByRole("checkbox").check();
   await review.getByRole("button", { name: "Approve this shift" }).click();
   await expect(page.getByRole("row").filter({ hasText: "Asha Juma" }).first()).toContainText("Reviewed and approved");
-  await expect(page.getByRole("row").filter({ hasText: "Closed" }).last()).toContainText("TZS 40,500");
+  await expect(page.getByRole("row").filter({ hasText: "Closed" }).last()).toContainText("TZS 90,500");
+
+  // The product table after the crate sale: 14 bottles sold (2 singly + a crate of 12), 59 left.
+  // Sales 9,000 + 50,000 - 4,500 refunded; cost 13 bottles at 3,750; gross profit 5,750.
+  await openScreen(page, "Products", "Products");
+  await expect(page.getByRole("row").filter({ hasText: "Konyagi ndogo" }).getByRole("cell")).toHaveText([
+    "Konyagi ndogo", "Bottle", "200 ml", "73", "14", "59", "TZS 3,750", "TZS 4,500", "TZS 54,500", "TZS 5,750", "59", /Details/]);
 
   await openScreen(page, "Reports", "Reports");
   await expect(page.getByRole("heading", { level: 2, name: "Daily sales and cumulative balance" })).toBeVisible();
-  await expect(page.getByRole("row").filter({ hasText: "Total" })).toContainText("TZS 40,500");
+  await expect(page.getByRole("row").filter({ hasText: "Total" })).toContainText("TZS 90,500");
   await page.getByLabel("Report").selectOption({ label: "Stock movement by product" });
   await expect(page.getByRole("heading", { level: 2, name: "Stock movement by product" })).toBeVisible();
   const konyagi = page.getByRole("row").filter({ hasText: "Konyagi ndogo" });
-  await expect(konyagi).toContainText("71");
+  await expect(konyagi).toContainText("59");
   const download = page.waitForEvent("download");
   await page.getByRole("link", { name: /Download for Excel/ }).click();
   expect((await download).suggestedFilename()).toMatch(/^meriba_stock-daily_.*\.csv$/);
@@ -351,10 +431,10 @@ test("owner reviews the closing and reads reports, audit history, settings and h
   await expect(correction.getByRole("button", { name: "Record this correction" })).toBeDisabled(); // a reason is required
   await correction.getByLabel("Reason").click();
   await page.keyboard.type("Refund was keyed 500 short on the day", { delay: 5 });
-  await expect(correction.getByText(/New closing balance for this day: TZS 40,000/)).toBeVisible();
+  await expect(correction.getByText(/New closing balance for this day: TZS 90,000/)).toBeVisible();
   await correction.getByRole("button", { name: "Record this correction" }).click();
   await expect(page.getByRole("dialog")).toBeHidden();
-  await expect(page.getByRole("row").filter({ hasText: "Closed" }).last()).toContainText("TZS 40,000");
+  await expect(page.getByRole("row").filter({ hasText: "Closed" }).last()).toContainText("TZS 90,000");
 });
 
 test("owner checks the Excel workbook without saving anything", async ({ page }) => {

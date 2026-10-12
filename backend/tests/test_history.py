@@ -533,7 +533,10 @@ REAL = os.environ.get("MERIBA_WORKBOOK", r"C:\Users\KAROLI\OneDrive\Desktop\MERI
 
 @pytest.mark.skipif(not os.path.exists(REAL), reason="the shop's workbook is not on this computer")
 def test_real_workbook_dry_run_then_import(owner, shop):
-    data = open(REAL, "rb").read()
+    try:
+        data = open(REAL, "rb").read()
+    except PermissionError:
+        pytest.skip("the workbook is open in Excel, which locks it; close it to run this test")
     boss = client_for(owner)
     preview = upload(boss, data, "/api/v1/history/imports/dry-run/", name="MERIBA STORE OCT 2026.xlsx").data
     s = preview["summary"]

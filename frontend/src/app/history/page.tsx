@@ -445,8 +445,11 @@ function Mapping({ isOwner, onChange }: { isOwner: boolean; onChange: () => void
           {open.open_exceptions.length > 0 && <div className="mt-2"><Alert kind="warning">Open question(s): {open.open_exceptions.map((e) => e.title).join("; ")}</Alert></div>}
           <div className="mt-3 grid gap-3 sm:grid-cols-3">
             <Field label="Confirmed product name">{(p) => <input {...p} className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />}</Field>
-            <Field label="Unit counted and sold in" hint={open.proposed_unit ? "From the sheet" : "Not stated in the sheets: please say. Bottle, Crate, Carton, Pack…"}>{(p) => <input {...p} className="input" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} />}</Field>
-            <Field label="Size (optional)">{(p) => <input {...p} className="input" value={form.size} onChange={(e) => setForm({ ...form, size: e.target.value })} />}</Field>
+            <Field label="Unit counted and sold in" hint={open.proposed_unit ? "From the sheet" : "Not stated in the sheets: please choose."}>{(p) => (
+              <select {...p} className="input" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })}>
+                <option value="">— Choose —</option>{["Bottle", "Crate", "Carton", "Box", "Pack"].map((u) => <option key={u}>{u}</option>)}
+              </select>)}</Field>
+            <Field label="Size (optional)" hint="For example 750ml: the volume of one bottle.">{(p) => <input {...p} className="input" value={form.size} onChange={(e) => setForm({ ...form, size: e.target.value })} />}</Field>
           </div>
           <fieldset className="mt-3"><legend className="mb-1 font-semibold">In the live product list</legend>
             <label className="flex items-center gap-2 py-1"><input type="radio" className="h-5 w-5" checked={form.mode === "create"} onChange={() => setForm({ ...form, mode: "create" })} /> Create a new product</label>

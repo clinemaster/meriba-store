@@ -35,7 +35,11 @@ export function formatTime(value: string | null | undefined): string {
   return new Date(value).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
 
-export type CartLine = { productId: number; name: string; unit: string; priceCents: number; quantity: number; stock: number };
+/** `unitId` and `factor` are set when the line is a package (e.g. a crate of 12): one of it takes `factor` out of stock. */
+export type CartLine = {
+  productId: number; name: string; unit: string; priceCents: number; quantity: number; stock: number;
+  unitId?: number | null; factor?: number;
+};
 
 export function lineTotalCents(line: Pick<CartLine, "priceCents" | "quantity">): number {
   return line.priceCents * line.quantity;

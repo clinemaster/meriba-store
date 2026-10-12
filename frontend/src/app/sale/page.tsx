@@ -65,31 +65,44 @@ export default function NewSalePage() {
     });
   const settlement = settle(totalCents, tenders);
 
-  function addToCart(product: Product) {
+  // A sale line is a product in one selling unit: its own unit, or a verified package such as a crate of 12.
+  // Stock is always checked in the product's own unit, across all of its lines together.
+  const keyOf = (l: Pick<CartLine, "productId" | "unitId">) => `${l.productId}:${l.unitId ?? 0}`;
+  const usedElsewhere = (lines: CartLine[], line: Pick<CartLine, "productId" | "unitId">) =>
+    lines.filter((l) => l.productId === line.productId && keyOf(l) !== keyOf(line)).reduce((sum, l) => sum + l.quantity * (l.factor ?? 1), 0);
+
+  function addToCart(product: Product, pack?: Product["units"][number]) {
     setProblem(null);
     const stock = Number(product.stock_on_hand);
+    const factor = pack ? Number(pack.factor) : 1;
+    const id = { productId: product.id, unitId: pack?.id ?? null };
     setCart((lines) => {
-      const existing = lines.find((l) => l.productId === product.id);
+      const existing = lines.find((l) => keyOf(l) === keyOf(id));
       const wanted = (existing?.quantity ?? 0) + 1;
-      if (wanted > stock) {
+      if (usedElsewhere(lines, id) + wanted * factor > stock) {
         setProblem(stock <= 0 ? `${product.name} is out of stock.` : `Only ${formatQty(stock)} of ${product.name} left in stock.`);
         return lines;
       }
-      if (existing) return lines.map((l) => (l.productId === product.id ? { ...l, quantity: wanted } : l));
-      const name = [product.name, product.package_size].filter(Boolean).join(" ");
-      return [...lines, { productId: product.id, name, unit: product.base_unit, priceCents: toCents(product.selling_price), quantity: 1, stock }];
+      if (existing) return lines.map((l) => (keyOf(l) === keyOf(id) ? { ...l, quantity: wanted } : l));
+      const base = [product.name, product.package_size].filter(Boolean).join(" ");
+      return [...lines, {
+        ...id, factor, stock, quantity: 1, unit: pack ? pack.name : product.base_unit,
+        name: pack ? `${base} (${pack.name} of ${formatQty(pack.factor)})` : base,
+        priceCents: toCents(pack ? pack.selling_price : product.selling_price),
+      }];
     });
   }
 
-  function setQuantity(productId: number, value: number) {
+  function setQuantity(line: CartLine, value: number) {
     setProblem(null);
     setCart((lines) =>
       lines.map((l) => {
-        if (l.productId !== productId) return l;
+        if (keyOf(l) !== keyOf(line)) return l;
         const quantity = Math.max(1, Math.floor(Number.isFinite(value) ? value : 1));
-        if (quantity > l.stock) {
-          setProblem(`Only ${formatQty(l.stock)} of ${l.name} left in stock.`);
-          return { ...l, quantity: Math.max(1, l.stock) };
+        const most = Math.floor((l.stock - usedElsewhere(lines, l)) / (l.factor ?? 1));
+        if (quantity > most) {
+          setProblem(`Only ${formatQty(l.stock)} of ${l.name.replace(/ \(.*\)$/, "")} left in stock.`);
+          return { ...l, quantity: Math.max(1, most) };
         }
         return { ...l, quantity };
       }),
@@ -118,7 +131,7 @@ export default function NewSalePage() {
         method: "POST",
         body: {
           request_key: requestKey.current,
-          items: cart.map((l) => ({ product: l.productId, quantity: l.quantity })),
+          items: cart.map((l) => ({ product: l.productId, quantity: l.quantity, ...(l.unitId ? { unit: l.unitId } : {}) })),
           payments: tenders
             .filter((t) => t.cents > 0)
             .map((t) => ({ method: t.methodId, amount: centsToApi(t.cents), reference: references[t.methodId] ?? "" })),
@@ -191,6 +204,15 @@ export default function NewSalePage() {
                       </span>
                       <span className="whitespace-nowrap font-bold tabular-nums">{formatTZS(p.selling_price)}</span>
                     </button>
+                    {(p.units ?? []).map((pack) => (
+                      <button
+                        key={pack.id} type="button" disabled={Number(p.stock_on_hand) < Number(pack.factor)} onClick={() => addToCart(p, pack)}
+                        className="mt-1 flex w-full items-center justify-between gap-3 rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 px-3 py-1.5 text-left text-sm hover:border-brand-600 disabled:cursor-not-allowed disabled:text-slate-500"
+                      >
+                        <span>Sell a whole <strong>{pack.name.toLowerCase()}</strong> of {p.name} ({formatQty(pack.factor)} {p.base_unit.toLowerCase()}s)</span>
+                        <span className="whitespace-nowrap font-bold tabular-nums">{formatTZS(pack.selling_price)}</span>
+                      </button>
+                    ))}
                   </li>
                 );
               })}
@@ -209,21 +231,21 @@ export default function NewSalePage() {
         ) : (
           <ul className="divide-y divide-slate-200">
             {cart.map((line) => (
-              <li key={line.productId} className="py-2">
+              <li key={keyOf(line)} className="py-2">
                 <div className="flex items-start justify-between gap-2">
                   <span className="font-semibold">{line.name}</span>
-                  <button type="button" className="text-sm font-semibold text-red-800 underline" onClick={() => setCart((c) => c.filter((l) => l.productId !== line.productId))}>
+                  <button type="button" className="text-sm font-semibold text-red-800 underline" onClick={() => setCart((c) => c.filter((l) => keyOf(l) !== keyOf(line)))}>
                     Remove<span className="sr-only"> {line.name}</span>
                   </button>
                 </div>
                 <div className="mt-1 flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1">
-                    <button type="button" aria-label={`One less ${line.name}`} className="btn-secondary min-h-[2.5rem] px-3" onClick={() => setQuantity(line.productId, line.quantity - 1)}>−</button>
+                    <button type="button" aria-label={`One less ${line.name}`} className="btn-secondary min-h-[2.5rem] px-3" onClick={() => setQuantity(line, line.quantity - 1)}>−</button>
                     <input
                       aria-label={`Quantity of ${line.name}`} className="input min-h-[2.5rem] w-20 text-center" inputMode="numeric" value={line.quantity}
-                      onChange={(e) => setQuantity(line.productId, Number(e.target.value.replace(/\D/g, "")) || 1)} onFocus={(e) => e.target.select()}
+                      onChange={(e) => setQuantity(line, Number(e.target.value.replace(/\D/g, "")) || 1)} onFocus={(e) => e.target.select()}
                     />
-                    <button type="button" aria-label={`One more ${line.name}`} className="btn-secondary min-h-[2.5rem] px-3" onClick={() => setQuantity(line.productId, line.quantity + 1)}>+</button>
+                    <button type="button" aria-label={`One more ${line.name}`} className="btn-secondary min-h-[2.5rem] px-3" onClick={() => setQuantity(line, line.quantity + 1)}>+</button>
                     <span className="ml-1 text-sm text-slate-600">× {formatTZS(line.priceCents, true)}</span>
                   </div>
                   <span className="font-bold tabular-nums">{formatTZS(lineTotalCents(line), true)}</span>
