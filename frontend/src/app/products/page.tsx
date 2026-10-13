@@ -13,14 +13,13 @@ const UNITS = ["Bottle", "Crate", "Carton", "Box", "Pack"];
 const EMPTY = { name: "", base_unit: "Bottle", volume_ml: "", bottles_per_unit: "", barcode: "", selling_price: "", cost_price: "", reorder_point: "0", is_active: true };
 type Form = typeof EMPTY;
 
-/** S/No and the eleven columns, in the agreed order. `key` is what the server sorts by. */
+/** S/No and the ten columns, in the agreed order (the Sales quantity column was removed at the owner's request, 13 Oct 2026). `key` is what the server sorts by. */
 const COLUMNS: { key: string; label: string; numeric?: boolean; help: string }[] = [
   { key: "serial_number", label: "S/No", help: "The product's line number, as on the Excel sheet" },
   { key: "name", label: "Product", help: "Name of the product" },
   { key: "sold_by", label: "Unit", help: "The unit this product is counted and sold in" },
   { key: "volume_ml", label: "Volume (ml)", numeric: true, help: "Volume of one bottle, in millilitres" },
   { key: "total_item_stock", label: "Total Stock", numeric: true, help: "Opening stock for the period plus stock received and other stock coming in" },
-  { key: "sales", label: "Sales", numeric: true, help: "Quantity sold in the period, in the product's unit. Cancelled sales are not counted" },
   { key: "closing_stock", label: "Closing Stock", numeric: true, help: "Opening stock + stock in − sales − breakages and other stock out" },
   { key: "purchase_price", label: "Purchase Price", numeric: true, help: "What the shop pays for one unit now, as in the Excel sheet" },
   { key: "selling_price", label: "Selling Price", numeric: true, help: "Current approved selling price of one unit" },
@@ -339,7 +338,6 @@ export default function ProductsPage() {
                     <td>{r.sold_by}{r.sold_by !== "Bottle" && r.bottles_per_unit ? <span className="block text-sm text-slate-600">{r.bottles_per_unit} bottles</span> : null}</td>
                     <td className="num">{r.volume_ml ? `${r.volume_ml.toLocaleString()} ml` : "—"}</td>
                     <td className="num">{formatQty(r.total_item_stock)}</td>
-                    <td className="num">{formatQty(r.sales)}</td>
                     <td className="num">{formatQty(r.closing_stock)}</td>
                     <td className="num">{r.purchase_price === null ? <span className="text-slate-600" title="No purchase price has been entered for this product.">Not entered</span> : <>{formatTZS(r.purchase_price)}{r.purchase_price_provisional && <span className="block text-sm text-amber-800">provisional</span>}</>}</td>
                     <td className="num">{Number(r.selling_price) > 0 ? formatTZS(r.selling_price) : <span className="font-semibold text-red-800">⚠ No price</span>}</td>
@@ -356,7 +354,7 @@ export default function ProductsPage() {
               {data && (
                 <tfoot>
                   <tr className="font-bold">
-                    <td colSpan={9}>Total for all {data.count} product{data.count === 1 ? "" : "s"} shown by these filters</td>
+                    <td colSpan={8}>Total for all {data.count} product{data.count === 1 ? "" : "s"} shown by these filters</td>
                     <td className="num">{formatTZS(data.totals.total_sales)}</td>
                     <td className="num">{formatTZS(data.totals.profit)}</td>
                     <td colSpan={2} />
