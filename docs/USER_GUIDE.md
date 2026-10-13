@@ -223,7 +223,7 @@ Leave the dates empty for the current business day.
 | Selling Price | Today's selling price |
 | Total Sales | Money from sales in the period, less refunds |
 | Profit | Total Sales less what those goods cost. Rent, wages and other expenses are not taken off here |
-| Stock | What is on the shelf right now |
+| Stock on Hand | What is on the shelf right now |
 
 - Press a **column heading** to sort by it; press again to reverse.
 - **Search**, **Unit** and **Show** narrow the list. **Download for Excel** saves what you see.
