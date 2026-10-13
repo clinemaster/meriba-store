@@ -38,7 +38,7 @@ test.beforeEach(async ({ page }) => {
   page.on("dialog", (dialog) => dialog.accept());
   await page.goto("/");
   await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
-  await page.getByRole("link", { name: "Excel History", exact: true }).click();
+  await page.goto("/history"); // no longer on the menu; the screen and its data are kept
   await expect(page.getByRole("heading", { level: 1, name: "Excel History" })).toBeVisible();
 });
 

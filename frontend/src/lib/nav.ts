@@ -17,7 +17,6 @@ export const NAV: NavItem[] = [
   { href: "/receive", label: "Receive Stock", roles: OFFICE },
   { href: "/expenses", label: "Expenses", roles: OFFICE },
   { href: "/reports", label: "Reports", roles: OFFICE },
-  { href: "/history", label: "Excel History", roles: OFFICE },
   { href: "/audit", label: "Audit History", roles: OFFICE },
   { href: "/users", label: "Users", roles: ["OWNER"] },
   { href: "/settings", label: "Settings", roles: ["OWNER"] },
@@ -30,6 +29,8 @@ const EXTRA: NavItem[] = [
   { href: "/sale", label: "Daily Sheet", roles: ALL },  // the old New Sale address; it now opens the Daily Sheet
   { href: "/change-password", label: "Change Password", roles: ALL },
   { href: "/help", label: "Help", roles: ALL },
+  // Taken off the menu at the owner's request (13 Oct 2026). The data is kept; Setup still links here for the open questions.
+  { href: "/history", label: "Excel History", roles: OFFICE },
 ];
 
 export function navFor(role: Role): NavItem[] {

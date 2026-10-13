@@ -13,6 +13,11 @@ describe("menus by role", () => {
     expect(labels).toEqual(expect.arrayContaining(["Receive Stock", "Expenses", "Reports", "Setup"]));
     expect(labels).not.toContain("Users");
   });
+  it("Excel History is off the menu but still opens for the office", () => {
+    expect(navFor("OWNER").map((i) => i.label)).not.toContain("Excel History");
+    expect(canOpen("OWNER", "/history")).toBe(true);
+    expect(canOpen("ACCOUNTANT", "/history")).toBe(true);
+  });
   it("owner sees everything", () => {
     expect(navFor("OWNER").map((i) => i.label)).toEqual(expect.arrayContaining(["Users", "Setup", "Products", "Daily Closing"]));
   });

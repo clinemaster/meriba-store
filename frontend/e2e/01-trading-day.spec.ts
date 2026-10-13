@@ -485,7 +485,7 @@ test("owner reviews the closing and reads reports, audit history, settings and h
 test("owner checks the Excel workbook without saving anything", async ({ page }) => {
   test.skip(!WORKBOOK || !fs.existsSync(WORKBOOK), "the shop's workbook is not on this computer");
   await signIn(page, OWNER.username, OWNER.password);
-  await page.getByRole("link", { name: "Excel History" }).click();
+  await page.goto("/history"); // no longer on the menu
   await expect(page.getByText("No historical data has been imported.")).toBeVisible();
   await page.getByLabel("Excel workbook (.xlsx)").setInputFiles(WORKBOOK);
   await page.getByRole("button", { name: /Step 1 · Check the file/ }).click();
