@@ -25,7 +25,7 @@ const COLUMNS: { key: string; label: string; numeric?: boolean; help: string }[]
   { key: "selling_price", label: "Selling Price", numeric: true, help: "Current approved selling price of one unit" },
   { key: "total_sales", label: "Total Sales", numeric: true, help: "Value of completed sales in the period, less refunds. Worked out from the sales themselves" },
   { key: "profit", label: "Profit", numeric: true, help: "Gross profit: Total Sales less the cost of the goods sold. Expenses are not taken off here" },
-  { key: "stock", label: "Stock", numeric: true, help: "Physical stock right now, from the stock ledger" },
+  { key: "stock", label: "Stock on Hand", numeric: true, help: "Physical stock right now, from the stock ledger" },
 ];
 
 function todayText(): string {

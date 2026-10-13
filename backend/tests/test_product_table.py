@@ -363,7 +363,7 @@ def test_table_export_matches_the_screen(owner, cashier, shop, make_product):
     response = client_for(owner).get("/api/v1/products/table/?download=csv")
     assert response.status_code == 200 and response["Content-Type"].startswith("text/csv") and "attachment" in response["Content-Disposition"]
     lines = response.content.decode("utf-8-sig").splitlines()
-    assert lines[1] == "Product,Unit,Volume (ml),Total Stock,Sales,Closing Stock,Purchase Price,Selling Price,Total Sales,Profit,Stock,Notes"
+    assert lines[1] == "Product,Unit,Volume (ml),Total Stock,Sales,Closing Stock,Purchase Price,Selling Price,Total Sales,Profit,Stock on Hand,Notes"
     assert lines[2] == "Konyagi,Crate,500,20,2,18,3000,4500,9000,3000,18,"
     assert lines[3].startswith("TOTAL,,,,,,,,9000,3000")
     assert AuditLog.objects.filter(action="report.exported").count() == 1

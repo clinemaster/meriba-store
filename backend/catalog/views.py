@@ -258,7 +258,7 @@ class ProductViewSet(viewsets.ModelViewSet):
             writer = csv.writer(response)
             writer.writerow(["MERIBA product table", f"{start} to {end}"])
             writer.writerow(["Product", "Unit", "Volume (ml)", "Total Stock", "Sales", "Closing Stock", "Purchase Price",
-                             "Selling Price", "Total Sales", "Profit", "Stock", "Notes"])
+                             "Selling Price", "Total Sales", "Profit", "Stock on Hand", "Notes"])
             for r in rows:
                 notes = []
                 if r["profit_status"] == "UNAVAILABLE":
