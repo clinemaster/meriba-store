@@ -72,7 +72,6 @@ const OWNER: Topic[] = [
   { title: "Before the first live day", link: { href: "/setup", label: "Setup" }, steps: [
     "Add products with selling prices.",
     "Have every product physically counted, entered on the count sheet, and approve the count.",
-    "Decide any open product or price question from the Excel review.",
     "Create a cashier account.",
     "Enter the verified opening cumulative sales balance and its cutover date, then approve and go live.",
   ] },

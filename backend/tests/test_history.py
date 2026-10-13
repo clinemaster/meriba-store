@@ -585,8 +585,8 @@ def test_exception_report_is_available_from_the_dry_run_before_anything_is_commi
         assert not model.objects.exists(), model.__name__
 
 
-def test_go_live_waits_for_price_questions_but_not_for_the_rest_of_the_history_review(owner, shop, make_user, make_product, imported):
-    """Development and review of the old records can go on in parallel; only identity and price questions hold up go-live."""
+def test_go_live_does_not_wait_for_the_history_review(owner, shop, make_user, make_product, imported):
+    """Owner's decision, 13 Oct 2026: the open Excel product and price questions no longer hold up go-live. They stay open."""
     shop.cfg.went_live_at = None
     shop.cfg.opening_stock_confirmed_at = None
     shop.cfg.save()
@@ -598,25 +598,14 @@ def test_go_live_waits_for_price_questions_but_not_for_the_rest_of_the_history_r
     boss.post(f"/api/v1/stock/opening-counts/{sheet.data['id']}/review/", {"approve": True}, format="json")
     go = {"opening_cumulative_sales": "0", "as_of_date": "2026-10-31", "confirm": True, "confirm_new_baseline": True}
 
-    step = lambda: next(s for s in boss.get("/api/v1/setup/status/").data["steps"] if s["key"] == "price_questions")
-    assert step()["done"] is False and "3 question(s) waiting for the Owner" in step()["detail"]
-    blocked = boss.post("/api/v1/setup/go-live/", go, format="json")
-    assert blocked.status_code == 409 and blocked.data["code"] == "setup_incomplete"
-    assert any("price questions" in title for title in blocked.data["details"])
+    status = boss.get("/api/v1/setup/status/").data
+    assert "price_questions" not in [s["key"] for s in status["steps"]] and status["ready_to_go_live"] is True
+    from history.services import open_price_questions
+    assert open_price_questions() == 3  # still open, and still shown in Excel History
 
-    henkens = list(SourceProduct.objects.filter(normalised_name="henken"))
-    magic = SourceProduct.objects.get(serial_number=4)
-    decide(boss, item("SAME_NAME_DIFFERENT_PRICE"), "DIFFERENT_VARIANTS",
-           identities=[{"source_product": h.pk, "confirmed_name": "Heineken", "confirmed_package_size": s} for h, s in zip(henkens, ("330ml", "500ml"))],
-           approved_prices=[{"source_product": h.pk, "price_type": "SELLING", "amount": a, "effective_date": "2026-08-31"} for h, a in zip(henkens, ("3500", "4000"))])
-    decide(boss, item("PRICE_ANOMALY"), "CONFIRMED_CORRECT", approved_prices=[
-        {"source_product": magic.pk, "price_type": "PURCHASE_COST", "amount": "1290", "effective_date": "2026-09-12"}])
-    decide(boss, item("MISSING_PRICE"), "NOT_FOR_SALE")
-    assert step()["done"] is True
-
-    # missing dates, product mappings and unlabelled rows are still open, and the history is still not reconciled
+    # exceptions, product mappings and unlabelled rows are all still open, and the history is still not reconciled
     board = boss.get("/api/v1/history/dashboard/").data
-    assert board["reconciled"] is False and board["blockers"]["exceptions"] == 1 and board["blockers"]["unlabelled_rows"] == 8
+    assert board["reconciled"] is False and board["blockers"]["exceptions"] == 4 and board["blockers"]["unlabelled_rows"] == 8
     live = boss.post("/api/v1/setup/go-live/", go, format="json")
     assert live.status_code == 200 and live.data["is_live"] is True
     assert boss.get("/api/v1/history/dashboard/").data["statement"].startswith("NOT RECONCILED")  # going live claims nothing about the past

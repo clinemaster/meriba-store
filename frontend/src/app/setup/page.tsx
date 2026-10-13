@@ -15,7 +15,6 @@ const WHERE: Record<string, { href: string; action: string; ownerOnly?: boolean 
   prices: { href: "/products", action: "Go to Products" },
   opening_stock: { href: "/stock", action: "Open the count sheet" },
   cashier: { href: "/users", action: "Go to Users", ownerOnly: true },
-  price_questions: { href: "/history", action: "Open Excel History" },
 };
 
 export default function SetupPage() {
