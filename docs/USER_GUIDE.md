@@ -241,3 +241,19 @@ Once a product has stock or sales, its unit cannot be changed.
 4. On **New Sale** the cashier sees "Sell a whole crate…" under the product. Selling one takes 12 bottles out of stock.
 
 If the number is changed later it must be verified again. Past sales keep the number they were sold with.
+## The Daily Sheet (Owner and Accountant)
+
+The Daily Sheet is the worksheet you kept in Excel, one for each day, with the same columns in the same order:
+S/N, Details, Opening stock, Add Purchases, Total stock, Sales, Closing stock, Purchase price, Sales price,
+Total Sales, Profit, Stock, T.Purchases, and a TOTAL row.
+
+- **Previous sheet / Next sheet** move from day to day, like the tabs at the bottom of the workbook.
+- **Days from Excel** (31 August to 9 October) are shown exactly as they were written. A cell marked with a warning
+  sign is one the workbook left empty or wrote differently from its own sum. Nothing has been corrected.
+- **Days recorded in the system** fill in by themselves: Add Purchases from Receive Stock, Sales from the sales made,
+  and Opening stock from the previous day's Closing stock.
+- **Closed days** are kept as they stood at closing. Changing a price later does not change an old sheet.
+- **Download for Excel (CSV)** gives the sheet with the same headings.
+
+You cannot type on the sheet yet. That waits for the owner's answers to questions W1 and W2 in OPEN_DECISIONS.md.
+The sums used are listed at the bottom of the screen and in EXCEL_WORKFLOW.md.

@@ -193,3 +193,17 @@ The October workbook has been run through a dry run (3,503 lines, five material 
 | 8 Historical data migration | 🟡 importer and review screens ✅; the Owner's import and decisions outstanding |
 | 9 UI refinement and testing | 🟡 browser tests of a full trading day ✅ (three defects found and fixed); trial with real users and the remaining screens ⬜ |
 | 10 Deployment preparation | 🟡 documented; not yet rehearsed on the shop computer |
+
+## Replicate the Excel transaction workflow (requested 13 Oct 2026)
+
+| Requirement | Status | Evidence |
+|---|---|---|
+| Same columns, order and meaning as the workbook | Done (display) | Daily Sheet screen; `tests/test_daily_sheet.py`; browser test 6 |
+| Same formulas as the workbook | Done | `trading/sheet.py`; all 21,018 imported figures reproduced with 0 differences |
+| Dependent figures calculated automatically | Done | Live days fill from recorded deliveries and sales |
+| Closing carried to the next day's opening | Done | Tested |
+| Validated against the workbook | Done | `/api/v1/daily-sheet/compare-with-workbook/`; results in EXCEL_WORKFLOW.md |
+| Records and formulas not silently altered | Done | Excel days shown as written; 13 empty Profit cells marked, not filled |
+| Typing Add Purchases and Sales on the sheet itself | **Not built** | Waiting for answers W1, W2 |
+| The position block under the product list | **Not built** | Waiting for answer W3 |
+| Cell formulas read from the workbook file | **Not done** | File was open in Excel; sums confirmed from results only (W7) |
