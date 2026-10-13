@@ -1,8 +1,10 @@
 from django.urls import path
 
-from . import views
+from . import sheet_views, views
 
 urlpatterns = [
+    path("daily-sheet/", sheet_views.DailySheetView.as_view(), name="daily-sheet"),
+    path("daily-sheet/compare-with-workbook/", sheet_views.WorkbookComparisonView.as_view(), name="daily-sheet-compare"),
     path("day/current/", views.CurrentDayView.as_view(), name="day-current"),
     path("day/start/", views.StartDayView.as_view(), name="day-start"),
     path("days/", views.DayListView.as_view(), name="day-list"),

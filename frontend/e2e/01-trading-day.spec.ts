@@ -396,6 +396,17 @@ test("owner reviews the closing and reads reports, audit history, settings and h
   await expect(page.getByRole("row").filter({ hasText: "Konyagi ndogo" }).getByRole("cell")).toHaveText([
     "Konyagi ndogo", "Bottle", "200 ml", "73", "14", "59", "TZS 3,750", "TZS 4,500", "TZS 54,500", "TZS 5,750", "59", /Details/]);
 
+  // The Daily Sheet: the Excel worksheet's columns, in the Excel order, with the Excel sums
+  await openScreen(page, "Daily Sheet", "Daily Sheet");
+  await expect(page.getByText("This day is closed. The sheet is kept as it stood at closing.")).toBeVisible();
+  await expect(page.getByRole("columnheader")).toHaveText([
+    "S/N", "Details", "Opening stock", "Add Purchases", "Total stock", "Sales", "Closing stock", "Purchase price", "Sales price",
+    "Total Sales", "Profit", "Stock", "T.Purchases", "Other"]);
+  // Konyagi: 24 bought, 14 sold. Total Sales 14 x 4,500 = 63,000; Profit 14 x 750; Stock 59 x 4,500; T.Purchases 24 x 3,750.
+  // The opening count (48) and the returned bottle are not purchases, so they show under "Other" and closing is 59.
+  await expect(page.getByRole("row").filter({ hasText: "Konyagi ndogo 200ml" }).getByRole("cell")).toHaveText([
+    "1", /^Konyagi ndogo 200ml/, "0", "24", "24", "14", "59", "3,750", "4,500", /^63,000taken 54,500$/, "10,500", "265,500", "90,000", "+49"]);
+
   await openScreen(page, "Reports", "Reports");
   await expect(page.getByRole("heading", { level: 2, name: "Daily sales and cumulative balance" })).toBeVisible();
   await expect(page.getByRole("row").filter({ hasText: "Total" })).toContainText("TZS 90,500");

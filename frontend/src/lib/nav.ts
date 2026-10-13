@@ -11,6 +11,7 @@ export const NAV: NavItem[] = [
   { href: "/sale", label: "New Sale", roles: ALL },
   { href: "/sales", label: "Today's Sales", roles: ALL },
   { href: "/day/close", label: "Close Day", roles: ALL },
+  { href: "/sheet", label: "Daily Sheet", roles: OFFICE },
   { href: "/closing", label: "Daily Closing", roles: OFFICE },
   { href: "/products", label: "Products", roles: OFFICE },
   { href: "/stock", label: "Stock", roles: OFFICE },

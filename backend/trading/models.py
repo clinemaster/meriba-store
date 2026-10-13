@@ -61,6 +61,46 @@ class BusinessDay(models.Model):
         return f"{self.date:%d %b %Y}"
 
 
+class DailySheetLine(AppendOnlyModel):
+    """One product line of a closed day's Daily Sheet, kept as it stood at closing.
+
+    The equivalent of a saved worksheet in the Excel workbook: later price changes do not alter it.
+    Column meanings and formulas are the workbook's own (see trading/sheet.py).
+    """
+
+    business_day = models.ForeignKey(BusinessDay, on_delete=models.PROTECT, related_name="sheet_lines")
+    product = models.ForeignKey("catalog.Product", on_delete=models.PROTECT, related_name="+")
+    number = models.PositiveIntegerField(help_text="S/N on the sheet")
+    details = models.CharField(max_length=200)
+    unit = models.CharField(max_length=30, blank=True)
+    opening = models.DecimalField(max_digits=16, decimal_places=3)
+    purchases = models.DecimalField(max_digits=16, decimal_places=3)
+    total_stock = models.DecimalField(max_digits=16, decimal_places=3)
+    sales = models.DecimalField(max_digits=16, decimal_places=3)
+    closing_stock = models.DecimalField(max_digits=16, decimal_places=3)
+    purchase_price = models.DecimalField(max_digits=16, decimal_places=2, null=True, blank=True)
+    sales_price = models.DecimalField(max_digits=16, decimal_places=2)
+    total_sales = models.DecimalField(max_digits=18, decimal_places=2)
+    profit = models.DecimalField(max_digits=18, decimal_places=2, null=True, blank=True)
+    stock = models.DecimalField(max_digits=18, decimal_places=2, help_text="Closing stock valued at the sales price")
+    total_purchases = models.DecimalField(max_digits=18, decimal_places=2, null=True, blank=True)
+    # Not in the workbook: returns, counts and breakages that also moved stock that day.
+    other_movements = models.DecimalField(max_digits=16, decimal_places=3, default=ZERO)
+    # What the tills actually took for this product (after refunds), for comparison with Sales x Sales price.
+    recorded_sales_value = models.DecimalField(max_digits=18, decimal_places=2, default=ZERO)
+
+    class Meta:
+        ordering = ["business_day_id", "number"]
+        constraints = [
+            models.UniqueConstraint(fields=["business_day", "product"], name="sheet_line_once_per_product_per_day"),
+            # The workbook's own arithmetic, enforced on every stored line.
+            models.CheckConstraint(condition=Q(total_stock=F("opening") + F("purchases")), name="sheet_total_stock_formula"),
+            models.CheckConstraint(condition=Q(closing_stock=F("total_stock") - F("sales") + F("other_movements")), name="sheet_closing_stock_formula"),
+            models.CheckConstraint(condition=Q(total_sales=F("sales") * F("sales_price")), name="sheet_total_sales_formula"),
+            models.CheckConstraint(condition=Q(stock=F("closing_stock") * F("sales_price")), name="sheet_stock_value_formula"),
+        ]
+
+
 class DayCorrection(AppendOnlyModel):
     """An Owner-authorised correction to a closed day's net sales.
 

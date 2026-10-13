@@ -149,3 +149,17 @@ sorting, pagination, a details view and CSV export. Cost and profit are for the 
   size as text ("750ml") rather than a separate volume box.
 - **Category** and **brand** exist on a product but are not shown in the table or the form.
 - The "supplier pack" text field is no longer on the product form (it is still stored for products that have it).
+## Replicating the Excel workflow (13 Oct 2026)
+
+Findings and what is built are in [EXCEL_WORKFLOW.md](EXCEL_WORKFLOW.md). The workbook's sums reproduce all 21,018
+calculated figures in the 31 sheets with no differences. These questions must be answered before the rest is built:
+
+| # | Question | Why it matters |
+|---|---|---|
+| W1 | **Is the Daily Sheet to replace the New Sale screen, or sit beside it?** In Excel you type one Sales quantity per product per day. The system currently records each sale as it happens (with a receipt and how it was paid) and fills the sheet from those | If quantities are typed on the sheet, there is no record of how each sale was paid, so the cashier's cash count and the mobile money and bank checks have nothing to compare against. Both ways cannot be used for the same product on the same day without counting sales twice |
+| W2 | **If Sales are typed on the sheet, who types them, and when?** Once at the end of the day from a stock count, or during the day? | Decides who may open the sheet and whether it is locked after closing |
+| W3 | **What are the seven typed amounts under the product list?** 632,700 / 697,900 / 1,990,300 (added to the stock value), 2,678,500 / 3,487,100 (taken off), 3,214,800 / 1,387,300 (added). They did not change once between 31 August and 9 October | They need names before the position block can be shown, and I need to know whether they should be updated daily |
+| W4 | **Profit: which rule do you want to rely on?** The workbook uses Sales x (Sales price - Purchase price that day). The Products screen uses the weighted-average cost you asked for on 12 October. For a product whose purchase price changed while old stock remained, the two give different profit | Both are shown, each on its own screen. Say if only one should be kept |
+| W5 | **The 13 empty Profit cells** ("Hajos wine dum" on 11 days, "gb k", "gb ndg"): 94,000 of profit missing from the workbook's totals | Left empty and marked. Say if they should be filled by the sum, as an approved correction |
+| W6 | **"Stock" on the sheet is a money value at selling price.** On the Products screen "Stock" is a quantity | Same word, two meanings, on two screens. I can rename one |
+| W7 | **Please close the workbook in Excel** (or save a copy elsewhere) so I can read the formulas themselves | The sums are confirmed from the results; reading the cells would confirm nothing is hidden, such as a link to another file |

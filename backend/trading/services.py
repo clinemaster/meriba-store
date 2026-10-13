@@ -152,6 +152,10 @@ def _finalise_day(day: BusinessDay, actor) -> None:
     day.closed_by = actor
     day.closed_at = timezone.now()
     day.save()
+    # Keep the day's Daily Sheet as it stands now, as a saved worksheet would be kept.
+    from . import sheet
+
+    sheet.freeze(day)
     audit(actor, "day.closed", day, summary=f"Closed business day {day}", after={
         "opening_cumulative_sales": day.opening_cumulative_sales, "net_sales": day.net_sales,
         "closing_cumulative_sales": day.closing_cumulative_sales,
