@@ -205,5 +205,5 @@ The October workbook has been run through a dry run (3,503 lines, five material 
 | Validated against the workbook | Done | `/api/v1/daily-sheet/compare-with-workbook/`; results in EXCEL_WORKFLOW.md |
 | Records and formulas not silently altered | Done | Excel days shown as written; 13 empty Profit cells marked, not filled |
 | Typing Add Purchases and Sales on the sheet itself | **Not built** | Waiting for answers W1, W2 |
-| The position block under the product list | **Not built** | Waiting for answer W3 |
+| The position block under the product list | **Out of scope** | Owner's decision, 13 Oct 2026: do not implement |
 | Cell formulas read from the workbook file | **Not done** | File was open in Excel; sums confirmed from results only (W7) |
