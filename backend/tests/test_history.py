@@ -634,3 +634,41 @@ def test_statuses_are_distinct_and_named_as_agreed(owner, imported):
     labels = {r["import_status_label"] for r in boss.get("/api/v1/history/records/?page_size=100").data["results"]}
     assert labels == {"Imported", "Pending review", "Rejected"}
     assert ReviewItem.objects.get(kind="MISSING_DATES").status == "REJECTED"
+
+def test_adding_the_latest_sheets_products_uses_only_what_the_sheet_states(owner, make_product):
+    """Owner's request, 13 Oct 2026: add the Excel products to the product table. Nothing guessed, no stock created."""
+    from catalog.models import Product
+    from history import services
+    from inventory.models import InventoryMovement, StockBalance
+
+    existing = make_product("Konyagi ndogo", "4500", cost_price=Decimal("3750"))
+    clash = make_product("Bavaria", "9999", cost_price=Decimal("3125"))
+    days = {AUG31: [line(1, "Konyagi ndogo", 100, 10, 3750, 4500), line(2, "Old name", 5, 0, 100, 200)],
+            SEP10: [line(1, "Konyagi ndogo", 90, 5, 3750, 4500), line(3, "Amarula kubwa", 6, 1, 28000, 35000),
+                    line(4, "Windhock", 8, 0, 17500, 21000), line(5, "Bavaria", 8, 0, 3125, 3500)]}
+    assert commit(client_for(owner), workbook(days, with_totals=False)).status_code == 201
+    SourceProduct.objects.filter(source_name="Amarula kubwa").update(proposed_unit="Bottle", proposed_package_size="750mls")
+    SourceProduct.objects.filter(source_name__in=["Windhock", "Bavaria"]).update(proposed_unit="", pack_text="Box (4)")
+    before = Product.objects.count()
+
+    dry = services.products_from_latest_sheet(owner=owner, commit=False)
+    assert Product.objects.count() == before and not SourceProduct.objects.filter(product__isnull=False).exists()  # a dry run saves nothing
+    done = services.products_from_latest_sheet(owner=owner, commit=True)
+    for result in (dry, done):
+        assert result["sheet"] == SEP10
+        assert [(r["name"], r["unit"]) for r in result["created"]] == [("Amarula kubwa", "Bottle")]
+        assert [(r["name"], r["product"]) for r in result["mapped_to_existing"]] == [("Konyagi ndogo", existing.pk)]
+        left = {r["name"]: r["why"] for r in result["left_for_owner"]}
+        assert "does not say what one unit is" in left["Windhock"] and "Box (4)" in left["Windhock"]
+        assert left["Bavaria"] == "A product with this name already exists with different prices"
+
+    made = Product.objects.get(name="Amarula kubwa")
+    assert (made.base_unit, made.package_size, made.volume_ml, made.selling_price, made.cost_price, made.is_active) == ("Bottle", "750mls", 750, 35000, 28000, True)
+    assert Product.objects.count() == before + 1  # "Old name" is not on the latest sheet; Windhock and Bavaria wait for the Owner
+    assert not StockBalance.objects.filter(product=made).exists() and not InventoryMovement.objects.filter(product=made).exists()  # no stock invented
+    mapped = SourceProduct.objects.get(source_name="Amarula kubwa")
+    assert (mapped.review_status, mapped.product, mapped.decided_by) == ("APPROVED", made, owner) and "Owner's request" in mapped.decision_note
+    clash.refresh_from_db()
+    assert clash.selling_price == 9999  # an existing product is never overwritten
+    again = services.products_from_latest_sheet(owner=owner, commit=True)
+    assert (again["created"], again["mapped_to_existing"], again["already_done"]) == ([], [], 2) and Product.objects.count() == before + 1

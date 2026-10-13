@@ -164,3 +164,28 @@ Sales as written total TZS 50,395,300 (unverified). Five material exceptions:
 5. "mkwawa" has no sales price on any sheet.
 
 Of the unlabelled rows, rows 117 and 118 (and row 119 on some sheets) equal column totals; the rest match nothing.
+
+## Adding the workbook's products to the product table (13 Oct 2026)
+
+At the Owner's request the products on the latest imported sheet (9 Oct 2026) were added to the product table with
+
+    python manage.py add_excel_products --owner <owner username>            (shows what would happen; saves nothing)
+    python manage.py add_excel_products --owner <owner username> --commit
+
+It uses only what the sheet states: the name as written, the unit where the sheet names one (bottle, crate, carton),
+the size from the description column, and that sheet's sales and purchase prices. It creates **no stock**; stock on
+hand still comes only from an approved opening count. Each product is recorded as a Product Mapping decision and in
+the audit history. Running it again adds nothing twice. A backup was taken first
+(`C:\MeribaBackups\meriba_lsms_2026-10-13_before_adding_excel_products.dump`).
+
+Result on the shop database: 70 products created (39 Bottle with the 2 already there, 21 Crate, 12 Carton),
+2 matched to products that already existed (Konyagi ndogo, Konyagi Kubwa), 41 left for the Owner:
+
+| Left for the Owner | Lines | Why |
+|---|---|---|
+| The sheet shows only "Box (n)" | 37 | It does not say whether one unit sold is a bottle, a pack or the whole box (question X1 in OPEN_DECISIONS.md) |
+| Hajos wine dum | 1 | The sheet says "5lts", not a unit |
+| Henken (two lines, 3,500 and 4,000) | 2 | Open price question in Excel History |
+| MAGIC MOMENT kati | 1 | Open price question: purchase price 9,000 then 1,290 |
+
+"mkwawa" was created but is not on sale: the workbook has no price for it.

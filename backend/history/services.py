@@ -608,3 +608,58 @@ PRICE_QUESTION_KINDS = ["SAME_NAME_DIFFERENT_PRICE", "PRICE_ANOMALY", "MISSING_P
 def open_price_questions() -> int:
     """Price and identity questions still waiting for the Owner. Go-live is blocked while any remain."""
     return ReviewItem.objects.filter(status=P, kind__in=PRICE_QUESTION_KINDS).count()
+
+# --- Adding the workbook's product list to the product table ---------------------------------
+
+def products_from_latest_sheet(*, owner, commit: bool) -> dict:
+    """Add the products listed on the latest imported sheet to the product table (owner's request, 13 Oct 2026).
+
+    Only what the sheet itself states is used: the name as written, the unit where the sheet names one
+    (bottle, crate, carton), the size from its description column, and that sheet's sales and purchase prices.
+    Nothing is guessed: a line whose unit is not stated, or that has an open price question, is left for the Owner
+    to decide in the Product Mapping Review, and is listed in the result. No stock is created; stock on hand
+    still comes only from an approved opening count. Each product goes through the same step as a single
+    mapping decision, so it is recorded and audited in the same way.
+    """
+    from django.db.models import Max
+
+    from catalog.models import Product
+
+    latest = HistoricalRecord.objects.aggregate(d=Max("business_date"))["d"]
+    result = {"sheet": latest, "created": [], "mapped_to_existing": [], "left_for_owner": [], "already_done": 0, "committed": commit}
+    if latest is None:
+        return result
+    note = f"Added from the Excel sheet of {latest:%d.%m.%Y} at the Owner's request"
+    records = HistoricalRecord.objects.filter(business_date=latest).exclude(import_status=R).select_related("source_product").order_by("source_row")
+    for record in records:
+        sp = record.source_product
+        row = {"serial": sp.serial_number, "name": sp.proposed_name or sp.source_name, "pack": sp.pack_text, "size": sp.proposed_package_size,
+               "selling_price": record.sales_price, "purchase_price": record.purchase_price}
+        if sp.product_id or sp.review_status != P:
+            result["already_done"] += 1
+            continue
+        blocking = list(sp.review_items.filter(status=P, kind__in=["SAME_NAME_DIFFERENT_PRICE", "PRICE_ANOMALY"]).values_list("title", flat=True))
+        same_name = list(Product.objects.filter(name__iexact=row["name"]))
+        if blocking:
+            result["left_for_owner"].append({**row, "why": "Open price question: " + "; ".join(blocking)})
+            continue
+        if same_name:
+            match = same_name[0]
+            # The same product only if the name and both prices agree; otherwise it is the Owner's call.
+            if len(same_name) == 1 and match.selling_price == record.sales_price and match.cost_price == record.purchase_price:
+                if commit:
+                    decide_source_product(owner=owner, source_product_id=sp.pk, approve=True, note=note, confirmed_name=match.name,
+                                          confirmed_unit=match.base_unit, confirmed_package_size=match.package_size, product=match)
+                result["mapped_to_existing"].append({**row, "unit": match.base_unit, "product": match.pk})
+            else:
+                result["left_for_owner"].append({**row, "why": "A product with this name already exists with different prices"})
+            continue
+        if not sp.proposed_unit:
+            result["left_for_owner"].append({**row, "why": f"The sheet does not say what one unit is (it says '{sp.pack_text or 'nothing'}')"})
+            continue
+        if commit:
+            decide_source_product(owner=owner, source_product_id=sp.pk, approve=True, note=note, confirmed_name=row["name"],
+                                  confirmed_unit=sp.proposed_unit, confirmed_package_size=sp.proposed_package_size, create_product=True,
+                                  selling_price=record.sales_price, cost_price=record.purchase_price)
+        result["created"].append({**row, "unit": sp.proposed_unit, "on_sale": bool(record.sales_price and record.sales_price > 0)})
+    return result

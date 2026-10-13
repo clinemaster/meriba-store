@@ -163,3 +163,11 @@ calculated figures in the 31 sheets with no differences. These questions must be
 | W5 | ~~The 13 empty Profit cells~~ **Decided 13 Oct 2026: keep them empty; do not fill them automatically; flag them for the Owner.** Built: they stay empty, are listed on the Daily Sheet screen for the Owner's review, and the Owner may approve a figure with a reason (kept beside the cell with name and date, and in the audit history). Reading the workbook showed these cells have **no formula** in them, unlike the cells around them | Closed. The Owner's review of the 13 cells is still to be done |
 | W6 | ~~"Stock" means a money value on the Daily Sheet and a quantity on the Products screen~~ **Decided 13 Oct 2026: rename one.** The Products screen column (and its export) is now "Stock on Hand". The Daily Sheet keeps "Stock", the workbook's own heading | Closed |
 | W7 | ~~Please close the workbook in Excel so I can read the formulas~~ **Done 13 Oct 2026 from a separate copy; the original was not touched.** The formulas are exactly the sums already implemented. See EXCEL_WORKFLOW.md | Closed |
+## Products from the workbook (13 Oct 2026)
+
+| # | Question | Why it matters |
+|---|---|---|
+| X1 | **For the 37 products the sheet marks only "Box (n)": what is one unit, the thing the price is for and stock is counted in?** A bottle, a pack, or the whole box? Examples: Windhock "Box (4)" at 21,000; Bavaria "BOX(24)" at 3,500; Redbull "BOX(6)" at 16,000 | The unit decides how stock is counted. Until it is known these products are not in the product table |
+| X2 | **Hajos wine dum** ("5lts", 30,000): what is one unit? | Same |
+| X3 | **Henken** appears twice (3,500 and 4,000) and **MAGIC MOMENT kati** has a purchase price of 1,290 after 9,000 | These are open questions in Excel History; the products are added once they are decided |
+| X4 | **mkwawa** has no price in the workbook | It is in the product table but cannot be sold until a price is entered |
