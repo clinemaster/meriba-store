@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Alert, Field, PageTitle, Spinner, StatusBadge } from "@/components/ui";
+import { Alert, ConfirmToast, Field, PageTitle, Spinner, StatusBadge } from "@/components/ui";
 import { api, errorMessage, type Page } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { formatDate, formatQty, formatTime } from "@/lib/money";
@@ -30,6 +30,7 @@ function OpeningCountSheet({ products, reloadProducts }: { products: Product[]; 
   const [countedBy, setCountedBy] = useState("");
   const [filter, setFilter] = useState("");
   const [reviewNote, setReviewNote] = useState("");
+  const [confirmApproval, setConfirmApproval] = useState(false);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
@@ -159,11 +160,18 @@ function OpeningCountSheet({ products, reloadProducts }: { products: Product[]; 
                 {(p) => <input {...p} className="input" maxLength={300} value={reviewNote} onChange={(e) => setReviewNote(e.target.value)} />}
               </Field>
               <div className="flex flex-wrap gap-3">
-                <button className="btn-primary" disabled={busy}
-                  onClick={() => window.confirm(`Approve this physical count of ${pending.lines.length} product(s)? The counted quantities become live stock.`)
-                    && run(() => api(`/stock/opening-counts/${pending.id}/review/`, { method: "POST", body: { approve: true, note: reviewNote } }), "Count sheet approved. The counted quantities are now stock.")}>
+                <button className="btn-primary" disabled={busy || confirmApproval} onClick={() => setConfirmApproval(true)}>
                   Approve the count
                 </button>
+                {confirmApproval && (
+                  <ConfirmToast
+                    message={`Approve this physical count of ${pending.lines.length} product(s)? The counted quantities become live stock.`}
+                    yes="Yes, approve" busy={busy} onNo={() => setConfirmApproval(false)}
+                    onYes={() => {
+                      setConfirmApproval(false);
+                      run(() => api(`/stock/opening-counts/${pending.id}/review/`, { method: "POST", body: { approve: true, note: reviewNote } }), "Count sheet approved. The counted quantities are now stock.");
+                    }} />
+                )}
                 <button className="btn-secondary" disabled={busy}
                   onClick={() => run(() => api(`/stock/opening-counts/${pending.id}/review/`, { method: "POST", body: { approve: false, note: reviewNote } }), "Count sheet rejected. Start a new sheet for the recount.")}>
                   Reject for a recount

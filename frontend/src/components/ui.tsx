@@ -108,3 +108,31 @@ export function StatusBadge({ status, label }: { status: string; label: string }
         : "bg-amber-100 text-amber-900 border-amber-300";
   return <span className={`inline-block whitespace-nowrap rounded-full border px-3 py-0.5 text-sm font-semibold ${tone}`}>{label}</span>;
 }
+
+/**
+ * A toast that asks a question: it slides in at the top right, stays until answered, and does not block the page
+ * the way the browser's own pop-up does. Escape or "No" dismisses it.
+ */
+export function ConfirmToast({ message, yes, no = "No, go back", busy = false, onYes, onNo }: {
+  message: string; yes: string; no?: string; busy?: boolean; onYes: () => void; onNo: () => void;
+}) {
+  const yesButton = useRef<HTMLButtonElement>(null);
+  const onNoRef = useRef(onNo);
+  onNoRef.current = onNo;
+  useEffect(() => {
+    yesButton.current?.focus();
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onNoRef.current(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  return (
+    <div role="alertdialog" aria-label="Please confirm" aria-describedby="confirm-toast-message"
+      className="no-print fixed right-4 top-4 z-50 w-[min(26rem,calc(100vw-2rem))] rounded-lg border-2 border-brand-700 bg-white p-4 shadow-2xl">
+      <p id="confirm-toast-message" className="font-semibold text-slate-900">{message}</p>
+      <div className="mt-3 flex flex-wrap justify-end gap-2">
+        <button type="button" className="btn-secondary min-h-[2.5rem]" disabled={busy} onClick={onNo}>{no}</button>
+        <button type="button" ref={yesButton} className="btn-primary min-h-[2.5rem]" disabled={busy} onClick={onYes}>{yes}</button>
+      </div>
+    </div>
+  );
+}

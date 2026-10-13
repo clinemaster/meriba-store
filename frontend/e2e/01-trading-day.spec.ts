@@ -106,6 +106,10 @@ test("owner sets up the shop and goes live", async ({ page }) => {
   await page.getByRole("button", { name: /Save 2 to the count sheet/ }).click();
   await expect(page.getByText("Stock does not change until the Owner approves")).toBeVisible();
   await page.getByRole("button", { name: "Approve the count" }).click();
+  // the question is asked in a toast on the page, not in the browser's own pop-up
+  const approval = page.getByRole("alertdialog");
+  await expect(approval).toContainText(/Approve this physical count of \d+ product\(s\)\? The counted quantities become live stock\./);
+  await approval.getByRole("button", { name: "Yes, approve" }).click();
   await expect(page.getByText("Count sheet approved")).toBeVisible();
   await expect(page.getByText("Opening stock is approved for every product on sale")).toBeVisible();
 
