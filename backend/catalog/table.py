@@ -87,7 +87,7 @@ def rows_for(products, start: date, end: date) -> list[dict]:
             profit = total_sales - cost_of_goods
             profit_status = "PROVISIONAL" if s.get("provisional") else "OK"
         rows.append({
-            "id": p.pk, "sku": p.sku, "name": p.name, "sold_by": p.base_unit, "volume_ml": p.volume_ml,
+            "id": p.pk, "serial_number": p.serial_number, "sku": p.sku, "name": p.name, "sold_by": p.base_unit, "volume_ml": p.volume_ml,
             "bottles_per_unit": p.bottles_per_unit, "is_active": p.is_active,
             "opening_stock": opening_qty, "incoming": incoming, "other_out": other_out,
             "total_item_stock": opening_qty + incoming,
@@ -103,14 +103,14 @@ def rows_for(products, start: date, end: date) -> list[dict]:
     return rows
 
 
-SORTABLE = {"name", "sold_by", "volume_ml", "total_item_stock", "sales", "closing_stock", "purchase_price",
+SORTABLE = {"serial_number", "name", "sold_by", "volume_ml", "total_item_stock", "sales", "closing_stock", "purchase_price",
             "selling_price", "total_sales", "profit", "stock"}
 
 
 def sort_rows(rows: list[dict], ordering: str) -> list[dict]:
-    key = (ordering or "name").lstrip("-")
+    key = (ordering or "serial_number").lstrip("-")
     if key not in SORTABLE:
-        key = "name"
+        key = "serial_number"
     descending = (ordering or "").startswith("-")
 
     def value(row):

@@ -13,8 +13,9 @@ const UNITS = ["Bottle", "Crate", "Carton", "Box", "Pack"];
 const EMPTY = { name: "", base_unit: "Bottle", volume_ml: "", bottles_per_unit: "", barcode: "", selling_price: "", cost_price: "", reorder_point: "0", is_active: true };
 type Form = typeof EMPTY;
 
-/** The eleven columns, in the agreed order. `key` is what the server sorts by. */
+/** S/No and the eleven columns, in the agreed order. `key` is what the server sorts by. */
 const COLUMNS: { key: string; label: string; numeric?: boolean; help: string }[] = [
+  { key: "serial_number", label: "S/No", help: "The product's line number, as on the Excel sheet" },
   { key: "name", label: "Product", help: "Name of the product" },
   { key: "sold_by", label: "Unit", help: "The unit this product is counted and sold in" },
   { key: "volume_ml", label: "Volume (ml)", numeric: true, help: "Volume of one bottle, in millilitres" },
@@ -198,7 +199,7 @@ export default function ProductsPage() {
   const [show, setShow] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const [ordering, setOrdering] = useState("name");
+  const [ordering, setOrdering] = useState("serial_number");
   const [page, setPage] = useState(1);
   const badDates = !!from && !!to && from > to;
   const params = `page=${page}&page_size=25&ordering=${ordering}&search=${encodeURIComponent(query)}${soldBy ? `&sold_by=${soldBy}` : ""}${show ? `&active=${show}` : ""}${from ? `&date_from=${from}` : ""}${to ? `&date_to=${to}` : ""}`;
@@ -333,6 +334,7 @@ export default function ProductsPage() {
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.id} className={r.is_active ? "" : "text-slate-500"}>
+                    <td>{r.serial_number ?? ""}</td>
                     <td><span className="font-semibold">{r.name}</span>{!r.is_active && <span className="block text-sm">Switched off</span>}</td>
                     <td>{r.sold_by}{r.sold_by !== "Bottle" && r.bottles_per_unit ? <span className="block text-sm text-slate-600">{r.bottles_per_unit} bottles</span> : null}</td>
                     <td className="num">{r.volume_ml ? `${r.volume_ml.toLocaleString()} ml` : "—"}</td>
@@ -354,7 +356,7 @@ export default function ProductsPage() {
               {data && (
                 <tfoot>
                   <tr className="font-bold">
-                    <td colSpan={8}>Total for all {data.count} product{data.count === 1 ? "" : "s"} shown by these filters</td>
+                    <td colSpan={9}>Total for all {data.count} product{data.count === 1 ? "" : "s"} shown by these filters</td>
                     <td className="num">{formatTZS(data.totals.total_sales)}</td>
                     <td className="num">{formatTZS(data.totals.profit)}</td>
                     <td colSpan={2} />
@@ -379,7 +381,7 @@ export default function ProductsPage() {
         )}
         <details className="mt-4 text-sm text-slate-700">
           <summary className="cursor-pointer font-semibold">What do the columns mean?</summary>
-          <ul className="ml-5 mt-2 list-disc space-y-1">{COLUMNS.slice(3).map((c) => <li key={c.key}><strong>{c.label}:</strong> {c.help}.</li>)}</ul>
+          <ul className="ml-5 mt-2 list-disc space-y-1">{COLUMNS.slice(4).map((c) => <li key={c.key}><strong>{c.label}:</strong> {c.help}.</li>)}</ul>
         </details>
       </div>
 

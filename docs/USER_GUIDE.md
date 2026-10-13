@@ -274,3 +274,9 @@ date; the cell itself stays as the workbook has it.
 
 Add Purchases is still filled from Receive Stock (Owner and Accountant); it cannot be typed on the sheet.
 The sums used are listed at the bottom of the screen and in EXCEL_WORKFLOW.md.
+## S/No on the Products screen
+
+The first column of the Products table is **S/No**, the product's line number as on the Excel sheet, and the table
+is listed in that order. Products added from the workbook keep the workbook's number. A product you add yourself
+takes the next free number. Numbers of workbook products not yet added (see OPEN_DECISIONS.md, X1 to X3) are kept
+free for them, so there are gaps for now. The Daily Sheet lists products by the same number.

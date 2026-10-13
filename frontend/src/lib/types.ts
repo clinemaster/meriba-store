@@ -17,7 +17,7 @@ export type Product = {
 
 /** One line of the product table. Amounts and quantities arrive as plain number text; blank means "not known". */
 export type ProductRow = {
-  id: number; sku: string; name: string; sold_by: string; volume_ml: number | null; bottles_per_unit: number | null; is_active: boolean;
+  id: number; serial_number: number | null; sku: string; name: string; sold_by: string; volume_ml: number | null; bottles_per_unit: number | null; is_active: boolean;
   opening_stock: string; incoming: string; other_out: string; total_item_stock: string; sales: string; closing_stock: string;
   purchase_price: string | null; purchase_price_provisional: boolean; purchase_price_entered: string | null; selling_price: string;
   total_sales: string; cost_of_goods_sold: string | null; profit: string | null; profit_status: "OK" | "PROVISIONAL" | "UNAVAILABLE"; stock: string;

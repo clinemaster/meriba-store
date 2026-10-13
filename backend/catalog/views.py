@@ -248,7 +248,7 @@ class ProductViewSet(viewsets.ModelViewSet):
         """Stock, sales and gross profit per product for a business day or date range. Back office only."""
         start, end = table.period(request.query_params)
         rows = table.sort_rows(table.rows_for(table.base_queryset(request.query_params), start, end),
-                               request.query_params.get("ordering", "name"))
+                               request.query_params.get("ordering", "serial_number"))
         summary = table.totals(rows)
 
         if request.query_params.get("download") == "csv":
@@ -257,7 +257,7 @@ class ProductViewSet(viewsets.ModelViewSet):
             response.write("﻿")
             writer = csv.writer(response)
             writer.writerow(["MERIBA product table", f"{start} to {end}"])
-            writer.writerow(["Product", "Unit", "Volume (ml)", "Total Stock", "Sales", "Closing Stock", "Purchase Price",
+            writer.writerow(["S/No", "Product", "Unit", "Volume (ml)", "Total Stock", "Sales", "Closing Stock", "Purchase Price",
                              "Selling Price", "Total Sales", "Profit", "Stock on Hand", "Notes"])
             for r in rows:
                 notes = []
@@ -267,11 +267,11 @@ class ProductViewSet(viewsets.ModelViewSet):
                     notes.append("Provisional: rests on an assumed purchase cost")
                 if not r["is_active"]:
                     notes.append("Not on sale")
-                writer.writerow([r["name"], r["sold_by"], r["volume_ml"] or "", _plain(r["total_item_stock"]), _plain(r["sales"]),
+                writer.writerow([r["serial_number"] or "", r["name"], r["sold_by"], r["volume_ml"] or "", _plain(r["total_item_stock"]), _plain(r["sales"]),
                                  _plain(r["closing_stock"]), "" if r["purchase_price"] is None else _plain(r["purchase_price"].quantize(Decimal("0.01"))),
                                  _plain(r["selling_price"]), _plain(r["total_sales"]), "" if r["profit"] is None else _plain(r["profit"]),
                                  _plain(r["stock"]), "; ".join(notes)])
-            writer.writerow(["TOTAL", "", "", "", "", "", "", "", _plain(summary["total_sales"]), _plain(summary["profit"]), "",
+            writer.writerow(["", "TOTAL", "", "", "", "", "", "", "", _plain(summary["total_sales"]), _plain(summary["profit"]), "",
                              f"Profit not available for {summary['profit_unavailable_for']} product(s)" if summary["profit_unavailable_for"] else ""])
             audit(request.user, "report.exported", summary=f"Exported the product table {start} to {end}")
             return response

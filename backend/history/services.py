@@ -499,7 +499,10 @@ def decide_source_product(*, owner, source_product_id, approve, note="", confirm
             size_text = (confirmed_package_size or "").strip()[:40]
             # A volume is recorded only when the Owner's confirmed size is plainly a number of millilitres.
             millilitres = re.fullmatch(r"(\d{1,5})\s*mls?\.?", size_text, re.IGNORECASE)
+            # The product keeps the workbook's S/N as its S/No, unless another product already has that number.
+            serial_free = sp.serial_number is not None and not Product.objects.filter(serial_number=sp.serial_number).exists()
             product = Product.objects.create(
+                serial_number=sp.serial_number if serial_free else None,
                 sku=f"P{last + 1:05d}", name=confirmed_name, package_size=size_text,
                 volume_ml=int(millilitres.group(1)) if millilitres and int(millilitres.group(1)) > 0 else None,
                 pack_description=sp.pack_text[:60], base_unit=confirmed_unit, selling_price=price,

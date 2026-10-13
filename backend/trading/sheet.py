@@ -68,8 +68,10 @@ def live_lines(day: date) -> list[dict]:
     refunded = dict(RefundItem.objects.filter(refund__business_day__date=day).values("sale_item__product")
                     .annotate(v=Sum("amount")).values_list("sale_item__product", "v"))
     lines = []
-    products = Product.objects.filter(Q(is_active=True) | Q(pk__in=list(opening) + list(today))).order_by("id")
-    for number, p in enumerate(products, start=1):
+    # Listed by S/No, the line number the product has on the Excel sheet.
+    products = Product.objects.filter(Q(is_active=True) | Q(pk__in=list(opening) + list(today))).order_by("serial_number", "id")
+    for position, p in enumerate(products, start=1):
+        number = p.serial_number or position
         m = today.get(p.pk, {})
         line = excel_line(opening.get(p.pk), m.get("purchases"), -(m.get("sold") or ZERO), p.cost_price, p.selling_price, m.get("other"))
         # What the tills actually took. It differs from Sales x Sales price when a package was sold at its own

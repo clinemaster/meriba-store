@@ -41,6 +41,9 @@ class Product(models.Model):
     # Volume of ONE individual bottle, in millilitres. Blank when not applicable or not yet verified.
     volume_ml = models.PositiveIntegerField(null=True, blank=True)
     # Package configuration: how many individual bottles are in one Sold By unit (for a crate, carton, box or pack).
+    # S/No: the product's line number, as on the Excel sheet. Products that came from the workbook keep the
+    # workbook's S/N; a product added later takes the next free number.
+    serial_number = models.PositiveIntegerField(null=True, blank=True, unique=True)
     # Each product has its own figure; nothing assumes that every crate holds the same number.
     bottles_per_unit = models.PositiveIntegerField(null=True, blank=True)
     barcode = models.CharField(max_length=64, blank=True)
@@ -75,6 +78,13 @@ class Product(models.Model):
     def __str__(self):
         return f"{self.name} {self.package_size}".strip()
 
+    def save(self, *args, **kwargs):
+        if self.serial_number is None:
+            self.serial_number = next_serial_number()
+            if kwargs.get("update_fields") is not None:
+                kwargs["update_fields"] = [*kwargs["update_fields"], "serial_number"]
+        super().save(*args, **kwargs)
+
     def delete(self, *args, **kwargs):
         # Products are switched off, never removed, so old sales keep their history (FR-PROD-06).
         raise models.ProtectedError("Products cannot be deleted. Deactivate the product instead.", {self})
@@ -103,3 +113,14 @@ class ProductUnit(models.Model):
             models.CheckConstraint(condition=Q(selling_price__gte=0), name="product_unit_price_not_negative"),
             models.CheckConstraint(condition=Q(name__in=SoldBy.values), name="product_unit_is_approved_unit"),
         ]
+
+
+def next_serial_number() -> int:
+    """The next free S/No: after every product, and after every line of the imported workbook, so a number the
+    workbook already uses for a product not yet added is never given to something else."""
+    from django.db.models import Max
+
+    from history.models import SourceProduct
+
+    highest = [Product.objects.aggregate(m=Max("serial_number"))["m"], SourceProduct.objects.aggregate(m=Max("serial_number"))["m"]]
+    return max((n for n in highest if n is not None), default=0) + 1
