@@ -87,5 +87,9 @@ Sales × Sales price.
 
 1. **Typing Sales and Add Purchases directly on the sheet**, as in Excel. The sheet is currently filled from sales made
    on the New Sale screen and deliveries on Receive Stock. See the questions in OPEN_DECISIONS.md.
-2. **The position block** (rows 120–131). The sums are known; the seven amounts need names before they can be shown.
-3. **The 13 empty Profit cells.** Shown as empty for the Excel days. For live days the sum is always applied.
+2. **The 13 empty Profit cells.** Shown as empty for the Excel days. For live days the sum is always applied.
+
+## Deliberately left out
+
+**The position block** (rows 120–131, the seven typed amounts and the sums built on them). The owner decided on
+13 Oct 2026 that it is not to be implemented. The rows remain in the imported history as unlabelled rows, unchanged.
