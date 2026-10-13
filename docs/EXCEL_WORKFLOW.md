@@ -83,10 +83,21 @@ Two things the workbook has no column for are shown rather than hidden: an **Oth
 correction or breakage also moved stock that day, and a "taken" figure when the money actually taken differs from
 Sales × Sales price.
 
+## Typing sales on the sheet (decided 13 Oct 2026)
+
+The cashier types sales on today's sheet at any time during the day. Each line has an "Add to Sales" box: the
+quantity typed is **added** to the day's Sales for that product, after the cashier says how it was paid. Behind the
+sheet each entry is an ordinary sale (receipt number, payment method), the same record the New Sale screen makes, so
+the two can be used side by side without counting anything twice and the cash count at closing still has something to
+check against. Differences from Excel, on purpose:
+
+- a quantity already saved is not typed over. A mistake is cancelled or refunded in Today's Sales, with a reason;
+- the cashier's sheet shows today only, without Purchase price, Profit and T.Purchases (the server does not send them);
+- a quantity larger than the stock left is refused.
+
 ## Not built, waiting for the owner's answers
 
-1. **Typing Sales and Add Purchases directly on the sheet**, as in Excel. The sheet is currently filled from sales made
-   on the New Sale screen and deliveries on Receive Stock. See the questions in OPEN_DECISIONS.md.
+1. **Typing Add Purchases directly on the sheet.** It is filled from deliveries entered on Receive Stock.
 2. **The 13 empty Profit cells.** Shown as empty for the Excel days. For live days the sum is always applied.
 
 ## Deliberately left out

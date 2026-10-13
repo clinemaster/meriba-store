@@ -4,7 +4,7 @@ import { canOpen, navFor } from "./nav";
 
 describe("menus by role", () => {
   it("cashier sees only daily sales functions", () => {
-    expect(navFor("CASHIER").map((i) => i.label)).toEqual(["Home", "New Sale", "Today's Sales", "Close Day"]);
+    expect(navFor("CASHIER").map((i) => i.label)).toEqual(["Home", "New Sale", "Today's Sales", "Close Day", "Daily Sheet"]);
   });
   it("accountant sees finance, stock and reports but not users", () => {
     const labels = navFor("ACCOUNTANT").map((i) => i.label);
@@ -22,7 +22,7 @@ describe("opening a page by typing its address (AT-UX-02)", () => {
   it.each(["/users", "/setup", "/products", "/stock", "/closing", "/receive", "/expenses", "/reports", "/history", "/audit", "/settings", "/anything-else"])("cashier is refused %s", (path) => {
     expect(canOpen("CASHIER", path)).toBe(false);
   });
-  it.each(["/", "/sale", "/sales", "/day/start", "/day/close", "/change-password", "/help"])("cashier may open %s", (path) => {
+  it.each(["/", "/sale", "/sales", "/sheet", "/day/start", "/day/close", "/change-password", "/help"])("cashier may open %s", (path) => {
     expect(canOpen("CASHIER", path)).toBe(true);
   });
   it("accountant is refused owner-only pages", () => {

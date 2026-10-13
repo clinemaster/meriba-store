@@ -66,7 +66,7 @@ def test_an_excel_day_is_shown_exactly_as_written(owner, cashier):
     assert data["totals"]["total_sales"] == "22500"
     missing = get(client_for(owner), date="2026-09-05")
     assert missing["source"] == "NONE" and missing["lines"] == [] and missing["previous_date"] == AUG31  # nothing invented for missing days
-    assert client_for(cashier).get("/api/v1/daily-sheet/").status_code == 403  # shows purchase prices and profit
+    assert client_for(cashier).get("/api/v1/daily-sheet/", {"date": str(SEP10)}).status_code == 403  # the cashier sees today only
     assert client_for(cashier).get("/api/v1/daily-sheet/compare-with-workbook/").status_code == 403
 
 
@@ -133,3 +133,23 @@ def test_daily_sheet_export_uses_the_workbooks_headings(owner, cashier, shop, ma
     assert rows[1] == ",".join(HEADINGS)
     assert rows[2] == "1,Konyagi ndogo,434,0,434,35,399,3750,4500,157500,26250,1795500,0"  # identical to the workbook's 1 October line
     assert rows[3] == ",TOTAL,,0,,35,,,,157500,26250,1795500,0"
+
+
+def test_the_cashier_types_sales_on_todays_sheet_without_seeing_costs(owner, cashier, shop, make_product, set_today):
+    product = make_product("Konyagi ndogo", "4500", 434, cost_price=Decimal("3750"))
+    till = client_for(cashier)
+    set_today(D1)
+    start_shift(till)
+    # typing 35 against the product on the sheet records an ordinary sale, with how it was paid
+    sell(till, [(product, 35)], [(shop.momo, 157500)])
+    data = get(till)
+    assert [c["label"] for c in data["columns"]] == ["S/N", "Details", "Opening stock", "Add Purchases", "Total stock", "Sales",
+                                                     "Closing stock", "Sales price", "Total Sales", "Stock"]
+    row = data["lines"][0]
+    assert (row["opening"], row["sales"], row["closing_stock"], row["sales_price"], row["total_sales"], row["stock"]) == (
+        "434", "35", "399", "4500", "157500", "1795500")
+    assert not {"purchase_price", "profit", "total_purchases"} & (set(row) | set(data["totals"]))
+    assert (data["previous_date"], data["next_date"]) == (None, None)
+    assert till.get("/api/v1/daily-sheet/", {"date": "2026-11-01"}).status_code == 403
+    assert till.get("/api/v1/daily-sheet/?download=csv").status_code == 403
+    assert get(client_for(owner))["lines"][0]["profit"] == "26250"  # the office still sees the whole sheet

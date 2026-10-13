@@ -243,7 +243,7 @@ test("owner accepts the history; live stock was never touched", async ({ page })
   // the historical figures (Konyagi closing 60, Safari 20) changed nothing in the live system
   await page.getByRole("link", { name: "Products", exact: true }).first().click();
   await expect(page.getByRole("heading", { level: 1, name: "Products" })).toBeVisible();
-  await expect(page.getByRole("row").filter({ hasText: "Konyagi ndogo" })).toContainText("59");
+  await expect(page.getByRole("row").filter({ hasText: "Konyagi ndogo" })).toContainText("58");
   const mkwawa = page.getByRole("row").filter({ hasText: "mkwawa" });
   await expect(mkwawa).toContainText("No price");
   await expect(mkwawa).toContainText("Switched off");

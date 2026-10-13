@@ -255,5 +255,12 @@ Total Sales, Profit, Stock, T.Purchases, and a TOTAL row.
 - **Closed days** are kept as they stood at closing. Changing a price later does not change an old sheet.
 - **Download for Excel (CSV)** gives the sheet with the same headings.
 
-You cannot type on the sheet yet. That waits for the owner's answers to questions W1 and W2 in OPEN_DECISIONS.md.
+**Typing a sale on the sheet (Cashier).** After Start Day, open Daily Sheet. Beside each product is an
+"Add to Sales" box. Type the quantity sold, press Save, choose how the customer paid (Cash, Mobile Money or Bank)
+and press Save sale. The Sales column goes up by that quantity and Closing stock goes down. Do this as often as needed
+during the day. Each entry is an ordinary sale with a receipt number: it appears in Today's Sales, counts in the
+cash expected at closing, and a mistake is put right there in the usual way (cancel or refund), not by typing over it.
+The cashier's sheet shows today only and leaves out Purchase price, Profit and T.Purchases.
+
+Add Purchases is still filled from Receive Stock (Owner and Accountant); it cannot be typed on the sheet.
 The sums used are listed at the bottom of the screen and in EXCEL_WORKFLOW.md.
