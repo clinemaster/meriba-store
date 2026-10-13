@@ -18,7 +18,7 @@ export default function StartDayPage() {
   const [problem, setProblem] = useState<string | null>(null);
 
   useEffect(() => {
-    if (data?.shift) router.replace("/sale");
+    if (data?.shift) router.replace("/sheet");
   }, [data, router]);
 
   if (loading && !data) return <Spinner />;
@@ -34,7 +34,7 @@ export default function StartDayPage() {
     setProblem(null);
     try {
       await api("/day/start/", { method: "POST", body: { opening_float: centsToApi(floatCents) } });
-      router.replace("/sale");
+      router.replace("/sheet");
     } catch (err) {
       setProblem(errorMessage(err));
       setBusy(false);

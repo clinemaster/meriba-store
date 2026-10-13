@@ -11,7 +11,7 @@ and what is still to be built.
 
 - Individual sign-in for three roles: Owner, Accountant, Cashier. Rules are enforced on the server.
 - Guided first-time setup: products, opening stock count, cashier account, then "go live".
-- Cashier day: Start Day → New Sale → receipt → Today's Sales → Close Day with cash count.
+- Cashier day: Start Day → Daily Sheet (type the quantity sold) → receipt → Today's Sales → Close Day with cash count.
 - Stock goes down automatically with each sale, through a ledger that cannot be edited.
 - Cash, mobile money and bank payments, including paying one sale with more than one method.
 - Cumulative monetary sales balance: each day opens with the last closed day's closing balance.

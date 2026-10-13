@@ -107,7 +107,8 @@ def _from_excel(day: date) -> list[dict]:
     from history.models import HistoricalRecord
 
     lines = []
-    for r in HistoricalRecord.objects.filter(business_date=day).exclude(import_status="REJECTED").select_related("source_product").order_by("source_row"):
+    for r in (HistoricalRecord.objects.filter(business_date=day).exclude(import_status="REJECTED")
+              .select_related("source_product", "profit_correction").order_by("source_row")):
         expected = excel_line(r.opening_qty, r.purchases_qty, r.sold_qty, r.purchase_price, r.sales_price)
         written = {"opening": r.opening_qty, "purchases": r.purchases_qty, "total_stock": r.total_stock, "sales": r.sold_qty,
                    "closing_stock": r.closing_qty, "purchase_price": r.purchase_price, "sales_price": r.sales_price,
@@ -116,7 +117,9 @@ def _from_excel(day: date) -> list[dict]:
                    if (written[f] or ZERO) != (expected[f] or ZERO)]
         lines.append({"number": r.source_product.serial_number, "product": r.source_product.product_id, "details": r.source_product.source_name,
                       "unit": "", **written, "other_movements": ZERO, "recorded_sales_value": None, "differs_from_recorded": False,
-                      "source": f"{r.worksheet} row {r.source_row}", "formula_differs": differs, "incomplete": r.incomplete})
+                      "source": f"{r.worksheet} row {r.source_row}", "formula_differs": differs, "incomplete": r.incomplete,
+                      # an Owner-approved figure for an empty Profit cell is shown beside the cell, never in it
+                      "approved_profit": r.profit_correction.approved_value if hasattr(r, "profit_correction") else None})
     return lines
 
 

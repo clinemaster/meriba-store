@@ -55,7 +55,7 @@ export default function HomePage() {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {shift ? (
             <>
-              <Link href="/sale" className="btn-primary btn-big">New Sale</Link>
+              <Link href="/sheet" className="btn-primary btn-big">Daily Sheet</Link>
               <Link href="/sales" className="btn-secondary btn-big">Today&apos;s Sales</Link>
               <Link href="/day/close" className="btn-secondary btn-big">Close Day</Link>
             </>

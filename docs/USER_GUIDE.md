@@ -18,18 +18,23 @@ Press **Help** at the top of any screen for step-by-step instructions.
 3. Type the **cash float** — the money you were given to make change. Type `0` if there is none.
 4. Press **Start Day**.
 
-### 2. Make a sale
-1. Press **New Sale**.
-2. Type part of the product name (or scan the barcode). Press the product to add it.
-   Press it again to add one more, or use **+** and **−**, or type the quantity.
-3. Check the **Total to pay**.
-4. Choose how the customer pays: **Cash**, **Mobile Money** or **Bank Transfer**.
+### 2. Record a sale on the Daily Sheet
+The Daily Sheet is the same sheet as in Excel: one row for each product. It is the only place sales are entered.
+
+1. Press **Daily Sheet**. (After Start Day it opens by itself.)
+2. Find the product. Typing part of its name in **Find a product on the sheet** shortens the list.
+3. In the **Add to Sales** box on that row, type the quantity sold and press **Save**.
+4. Check the **Total to pay**. If the product is also sold by the crate, choose it under **Sold as**.
+5. Choose how the customer pays: **Cash**, **Mobile Money** or **Bank Transfer**.
    - Cash: type the money the customer handed you. The screen shows the **change to give back**.
      Leave the box empty if they paid the exact amount.
    - Paying partly cash and partly mobile money? Press **Customer is paying with more than one method**
      and type each amount.
-5. Press **Complete Sale**. Wait for the green "Sale saved" message and the receipt number.
-6. Press **Print Receipt** if the customer wants one, then **Next Sale**.
+6. Press **Save sale**. Wait for the green "Sale saved" message and the receipt number.
+7. Press **Print Receipt** if the customer wants one, then **Back to the sheet**.
+
+The sheet has now added the quantity to **Sales** and worked out **Closing stock**, **Total Sales** and **Stock**.
+Each entry is for one product. A customer buying three products is three entries.
 
 **If something goes wrong**
 - *"Only 3 left in stock"* — you cannot sell more than the system has. Tell the Owner if the shelf shows more.
@@ -238,7 +243,7 @@ Once a product has stock or sales, its unit cannot be changed.
 2. Under *Package configuration*, choose the package (for example Crate), how many it holds (for example 12) and its
    selling price, then **Add package**.
 3. The **Owner** presses **Verify** to confirm the number. Until then it cannot be sold.
-4. On **New Sale** the cashier sees "Sell a whole crate…" under the product. Selling one takes 12 bottles out of stock.
+4. On the **Daily Sheet** the cashier chooses the crate under **Sold as** in the sale window. Selling one takes 12 bottles out of stock and adds 12 to the Sales column.
 
 If the number is changed later it must be verified again. Past sales keep the number they were sold with.
 ## The Daily Sheet (Owner and Accountant)
@@ -255,12 +260,17 @@ Total Sales, Profit, Stock, T.Purchases, and a TOTAL row.
 - **Closed days** are kept as they stood at closing. Changing a price later does not change an old sheet.
 - **Download for Excel (CSV)** gives the sheet with the same headings.
 
-**Typing a sale on the sheet (Cashier).** After Start Day, open Daily Sheet. Beside each product is an
-"Add to Sales" box. Type the quantity sold, press Save, choose how the customer paid (Cash, Mobile Money or Bank)
-and press Save sale. The Sales column goes up by that quantity and Closing stock goes down. Do this as often as needed
-during the day. Each entry is an ordinary sale with a receipt number: it appears in Today's Sales, counts in the
-cash expected at closing, and a mistake is put right there in the usual way (cancel or refund), not by typing over it.
-The cashier's sheet shows today only and leaves out Purchase price, Profit and T.Purchases.
+**Typing a sale on the sheet.** See "Record a sale on the Daily Sheet" in the Cashier section. A mistake is put
+right in Today's Sales (cancel or refund, with a reason), not by typing over the quantity. The cashier's sheet shows
+today only and leaves out Purchase price, Profit and T.Purchases.
+
+**Profit.** Worked out as in Excel: quantity sold × (Sales price − Purchase price on the day of the sale). The purchase
+price is kept with each sale and each closed sheet, so changing a price later does not change past profit.
+
+**Empty Profit cells in the Excel workbook (Owner).** Thirteen lines in the workbook have sales but an empty Profit
+cell. They are kept empty. Open the list at the bottom of the Daily Sheet screen to review them. To approve a figure,
+press **Approve a figure…**, type the figure and the reason. It is recorded beside the cell with your name and the
+date; the cell itself stays as the workbook has it.
 
 Add Purchases is still filled from Receive Stock (Owner and Accountant); it cannot be typed on the sheet.
 The sums used are listed at the bottom of the screen and in EXCEL_WORKFLOW.md.

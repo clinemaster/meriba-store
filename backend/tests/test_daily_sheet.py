@@ -153,3 +153,36 @@ def test_the_cashier_types_sales_on_todays_sheet_without_seeing_costs(owner, cas
     assert till.get("/api/v1/daily-sheet/", {"date": "2026-11-01"}).status_code == 403
     assert till.get("/api/v1/daily-sheet/?download=csv").status_code == 403
     assert get(client_for(owner))["lines"][0]["profit"] == "26250"  # the office still sees the whole sheet
+
+def test_empty_profit_cells_stay_empty_and_are_flagged_for_the_owner(owner, accountant):
+    """Owner's decision, 13 Oct 2026: do not fill them. A later correction is the Owner's, kept beside the record."""
+    from core.models import AuditLog
+
+    blank_profit = line(7, "Hajos wine dum", 12, 2, 25000, 30000)
+    blank_profit[10] = None
+    no_sales = line(8, "Henken", 5, 0, 3125, 4000)
+    no_sales[10] = None  # empty, but nothing was sold: not a missing figure
+    commit(client_for(owner), workbook({AUG31: [line(1, "Konyagi ndogo", 100, 10, 3750, 4500), blank_profit, no_sales]}, with_totals=False))
+    boss, office = client_for(owner), client_for(accountant)
+
+    flagged = office.get("/api/v1/history/empty-profit-cells/").data
+    assert (flagged["count"], flagged["awaiting_review"]) == (1, 1)
+    cell = flagged["cells"][0]
+    assert (cell["worksheet"], cell["row"], cell["product"], cell["sales"], cell["written"], cell["formula_would_give"], cell["correction"]) == (
+        "31.08.2026", 5, "Hajos wine dum", "2", None, "10000.00", None)
+
+    url = f"/api/v1/history/empty-profit-cells/{cell['id']}/correct/"
+    assert office.post(url, {"approved_value": "10000", "reason": "Formula was not copied down"}, format="json").status_code == 403  # Owner only
+    assert boss.post(url, {"approved_value": "10000", "reason": ""}, format="json").status_code == 400  # a reason is required
+    assert HistoricalRecord.objects.get(pk=cell["id"]).profit is None and get(boss, date=str(AUG31))["lines"][1]["approved_profit"] is None
+
+    done = boss.post(url, {"approved_value": "10000", "reason": "Formula was not copied down"}, format="json")
+    assert done.status_code == 201 and done.data["correction"]["approved_value"] == "10000.00"
+    assert HistoricalRecord.objects.get(pk=cell["id"]).profit is None  # the original record still shows the empty cell
+    shown = get(boss, date=str(AUG31))["lines"][1]
+    assert (shown["profit"], shown["approved_profit"], shown["formula_differs"]) == (None, "10000", ["profit"])
+    assert get(boss, date=str(AUG31))["totals"]["profit"] == "7500"  # the workbook's own total is unchanged
+    log = AuditLog.objects.get(action="history.profit_correction_approved")
+    assert log.actor == owner and log.reason == "Formula was not copied down" and "31.08.2026 row 5" in log.summary
+    assert boss.post(url, {"approved_value": "9000", "reason": "Second thoughts"}, format="json").status_code == 409  # never replaced
+    assert office.get("/api/v1/history/empty-profit-cells/").data["awaiting_review"] == 0

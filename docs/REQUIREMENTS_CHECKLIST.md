@@ -204,7 +204,9 @@ The October workbook has been run through a dry run (3,503 lines, five material 
 | Closing carried to the next day's opening | Done | Tested |
 | Validated against the workbook | Done | `/api/v1/daily-sheet/compare-with-workbook/`; results in EXCEL_WORKFLOW.md |
 | Records and formulas not silently altered | Done | Excel days shown as written; 13 empty Profit cells marked, not filled |
-| Typing Sales on the sheet (cashier, any time in the day) | Done | "Add to Sales" on today's sheet; each entry is a sale with its payment method; browser test 5, `tests/test_daily_sheet.py` |
+| Sales entered on the Daily Sheet only (decision 1) | Done | New Sale screen removed; sale window on the sheet with change, split payment, packages, receipt; `SheetSale.test.tsx`; browser tests 3 and 5 |
 | Typing Add Purchases on the sheet | **Not built** | Filled from Receive Stock; not requested for the cashier |
 | The position block under the product list | **Out of scope** | Owner's decision, 13 Oct 2026: do not implement |
-| Cell formulas read from the workbook file | **Not done** | File was open in Excel; sums confirmed from results only (W7) |
+| Profit by the workbook's rule, purchase price of the day stored with the transaction (decision 2) | Done | `sales/services.py`, `DailySheetLine`; `tests/test_product_table.py`, `tests/test_daily_sheet.py` |
+| 13 empty Profit cells kept empty, flagged for the Owner, correction only with approval and audit (decision 3) | Done | `ProfitCellCorrection`; `/api/v1/history/empty-profit-cells/`; test in `tests/test_daily_sheet.py`. The Owner's review itself is outstanding |
+| Cell formulas read from a separate copy of the workbook (decision 4) | Done | Formulas listed in EXCEL_WORKFLOW.md; original file unchanged |

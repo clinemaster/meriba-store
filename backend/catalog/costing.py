@@ -1,4 +1,8 @@
-"""Weighted-average costing.
+"""Weighted-average costing. FOR INFORMATION ONLY since 13 Oct 2026.
+
+The owner decided that profit follows the Excel workbook: Sales x (Sales price - Purchase price of that day).
+The average below is still worked out and shown in a product's delivery history, but no profit, sale cost or
+stock value is calculated from it. Do not use it for those without the owner's explicit approval.
 
 The average cost of a product is the total cost of the units in stock divided by their number.
 A delivery changes it:   new average = (in stock × old average + received × delivery cost) ÷ (in stock + received)

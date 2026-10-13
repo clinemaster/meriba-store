@@ -170,13 +170,14 @@ def test_daily_stock_figures_and_carry_forward(cashier, accountant, shop, make_p
 
 # --- Weighted-average cost; 6, 7, 8. Total Sales and gross profit, with refunds and cancellations --
 
-def test_weighted_average_cost_is_not_the_latest_purchase_price(accountant, cashier, shop, make_product):
-    product = make_product("Konyagi", "4500", 10, cost_price=Decimal("3000"))  # 10 in stock at 3,000
+def test_profit_uses_the_purchase_price_of_the_day_as_the_workbook_does_not_the_weighted_average(accountant, cashier, shop, make_product):
+    """Owner's decision, 13 Oct 2026: Profit = Sales x (Sales price - Purchase price that day). No weighted average."""
+    product = make_product("Konyagi", "4500", 10, cost_price=Decimal("3000"))  # 10 in stock, purchase price 3,000
     office = client_for(accountant)
-    receive(office, product, 30, "4000")  # (10 x 3,000 + 30 x 4,000) / 40 = 3,750
+    receive(office, product, 30, "4000")  # a delivery at 4,000 that does not change the product's purchase price
     product.refresh_from_db()
-    assert product.average_cost == Decimal("3750") and product.cost_provisional is False
-    assert product.cost_price == 3000  # the entered price is untouched unless asked
+    assert product.average_cost == Decimal("3750")  # still worked out, for information only
+    assert product.cost_price == 3000  # the purchase price is untouched unless asked
     line = GoodsReceiptLine.objects.get()
     assert (line.unit_cost, line.average_cost_before, line.average_cost_after) == (4000, 3000, 3750)  # purchase history kept
 
@@ -184,18 +185,20 @@ def test_weighted_average_cost_is_not_the_latest_purchase_price(accountant, cash
     start_shift(till)
     sell(till, [(product, 8)], [(shop.cash, 36000)])
     first = SaleItem.objects.get()
-    assert (first.unit_cost, first.cost_total) == (3750, 30000)
+    assert (first.unit_cost, first.cost_total) == (3000, 24000)  # the purchase price of the day, not the 3,750 average
 
-    receive(office, product, 32, "5000", update_cost_price=True)  # (32 x 3,750 + 32 x 5,000) / 64 = 4,375
+    receive(office, product, 32, "5000", update_cost_price=True)  # the purchase price becomes 5,000 from now on
     product.refresh_from_db()
-    assert product.average_cost == Decimal("4375") and product.cost_price == 5000
+    assert product.cost_price == 5000
     first.refresh_from_db()
-    assert first.cost_total == 30000  # the cost of a sale already made is never rewritten
+    assert first.cost_total == 24000  # the purchase price stored with a sale already made is never rewritten
     shown = row(office, product)
     assert (shown["purchase_price"], shown["total_sales"], shown["cost_of_goods_sold"], shown["profit"], shown["profit_status"]) == (
-        "4375", "36000", "30000", "6000", "OK")
+        "5000", "36000", "24000", "12000", "OK")  # 8 x (4,500 - 3,000)
+    sell(till, [(product, 2)], [(shop.cash, 9000)])
+    assert row(office, product)["profit"] == "11000"  # plus 2 x (4,500 - 5,000): the new purchase price applies to new sales only
     stock = office.get("/api/v1/reports/stock-on-hand/").data
-    assert stock["rows"][0]["stock_value"] == "280000"  # 64 x 4,375, not 64 x the latest price of 5,000
+    assert stock["rows"][0]["stock_value"] == "310000"  # 62 x the purchase price of 5,000
 
 
 def test_total_sales_and_gross_profit_with_refunds_and_cancellations(cashier, accountant, shop, make_product):
@@ -245,11 +248,11 @@ def test_profit_is_unavailable_or_provisional_rather_than_invented(cashier, acco
     rows = {r["name"]: r for r in table(office, page_size=500)["results"]}
     assert (rows["No cost known"]["purchase_price"], rows["No cost known"]["profit"], rows["No cost known"]["profit_status"]) == (None, None, "UNAVAILABLE")
     assert rows["No cost known"]["total_sales"] == "10000"  # sales are still reported
-    assert (rows["Cost assumed"]["profit"], rows["Cost assumed"]["profit_status"], rows["Cost assumed"]["purchase_price_provisional"]) == ("4000", "PROVISIONAL", True)
+    assert (rows["Cost assumed"]["profit"], rows["Cost assumed"]["profit_status"], rows["Cost assumed"]["purchase_price_provisional"]) == ("4000", "OK", False)  # 2 x (5,000 - 3,000)
     totals = table(office, page_size=500)["totals"]
-    assert (totals["profit"], totals["profit_unavailable_for"], totals["profit_provisional_for"]) == ("4000", 1, 1)
+    assert (totals["profit"], totals["profit_unavailable_for"], totals["profit_provisional_for"]) == ("4000", 1, 0)
     csv_text = office.get("/api/v1/products/table/?download=csv").content.decode("utf-8-sig")
-    assert "Profit not available" in csv_text and "Provisional" in csv_text
+    assert "Profit not available" in csv_text
 
 
 def test_opening_stock_is_valued_at_the_entered_purchase_price(owner, shop):
@@ -298,8 +301,9 @@ def test_changing_the_selling_price_leaves_history_alone(owner, cashier, shop, m
     assert (receipt["total"], receipt["items"][0]["unit_price"], receipt["items"][0]["product_name"]) == ("9000.00", "4500.00", "Konyagi")
     after = row(boss, product)
     assert after["selling_price"] == "6000" and after["name"] == "Konyagi Gold"
-    for figure in ("total_sales", "cost_of_goods_sold", "profit", "sales", "purchase_price"):
-        assert after[figure] == before[figure], figure  # 9,000 sales, 6,000 cost, 3,000 profit, average still 3,000
+    for figure in ("total_sales", "cost_of_goods_sold", "profit", "sales"):
+        assert after[figure] == before[figure], figure  # 9,000 sales, 6,000 cost, 3,000 profit: kept as sold
+    assert after["purchase_price"] == "9999"  # the new purchase price shows, and applies to new sales only
     assert sell(till, [(product, 1)], [(shop.cash, 6000)]).data["total"] == "6000.00"  # new sales use the new price
     assert row(boss, product)["total_sales"] == "15000"
 

@@ -122,17 +122,17 @@ def create_sale(*, cashier, request_key, items, payments) -> tuple[Sale, bool]:
         receipt_number=f"{day.branch.code}-{day.date:%Y%m%d}-{day.last_receipt_seq:04d}",
         subtotal=subtotal, discount_total=ZERO, total=total, amount_tendered=total + change, change_due=change,
     )
-    # Cost of goods sold is frozen now, from each product's weighted-average cost. A later delivery or
-    # price change cannot alter the cost or profit of this sale. Unknown cost stays unknown.
+    # The workbook's rule (owner's decision, 13 Oct 2026): Profit = Sales x (Sales price - Purchase price), using the
+    # product's purchase price on the day of the sale. That purchase price is frozen on the sale line now, so a later
+    # price change cannot alter the profit of this sale. Weighted-average cost is not used. Unknown stays unknown.
     from catalog.models import Product
 
-    costs = {pk: (average, provisional) for pk, average, provisional in
-             Product.objects.filter(pk__in=[line["product"].pk for line in lines]).values_list("pk", "average_cost", "cost_provisional")}
+    costs = dict(Product.objects.filter(pk__in=[line["product"].pk for line in lines]).values_list("pk", "cost_price"))
     for line in lines:
-        average, provisional = costs[line["product"].pk]
-        line["unit_cost"] = None if average is None else average * line["factor"]
-        line["cost_total"] = None if average is None else money(line["quantity_base"] * average)
-        line["cost_provisional"] = bool(provisional) and average is not None
+        purchase_price = costs[line["product"].pk]
+        line["unit_cost"] = None if purchase_price is None else purchase_price * line["factor"]
+        line["cost_total"] = None if purchase_price is None else money(line["quantity_base"] * purchase_price)
+        line["cost_provisional"] = False
     SaleItem.objects.bulk_create([
         SaleItem(sale=sale, product=line["product"], product_name=str(line["product"]), unit_name=line["unit_name"],
                  unit_factor=line["factor"], quantity=line["quantity"], quantity_base=line["quantity_base"],

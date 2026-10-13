@@ -3,7 +3,8 @@
 Every figure comes from the records, never from another figure on the screen:
 - quantities from the stock ledger (in the product's Sold By unit);
 - Total Sales from completed sales, less refunds given in the period;
-- Profit (gross) from those sales less the cost frozen on each sale line at the time it was sold;
+- Profit as in the Excel workbook: quantity sold x (sales price - purchase price), with the purchase price of the
+  day of the sale, frozen on each sale line. Weighted-average cost is not used (owner's decision, 13 Oct 2026);
 - Stock from the live balance, not from adding up days.
 """
 from collections import defaultdict
@@ -92,7 +93,7 @@ def rows_for(products, start: date, end: date) -> list[dict]:
             "total_item_stock": opening_qty + incoming,
             "sales": sales_qty,
             "closing_stock": opening_qty + (m.get("net") or ZERO),
-            "purchase_price": p.average_cost, "purchase_price_provisional": p.cost_provisional,
+            "purchase_price": p.cost_price, "purchase_price_provisional": False,
             "purchase_price_entered": p.cost_price,
             "selling_price": p.selling_price,
             "total_sales": total_sales, "cost_of_goods_sold": None if profit is None else cost_of_goods,

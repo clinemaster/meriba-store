@@ -16,5 +16,7 @@ urlpatterns = [
     path("history/source-products/<int:pk>/decide/", views.SourceProductDecideView.as_view(), name="history-source-product-decide"),
     path("history/records/", views.RecordListView.as_view(), name="history-records"),
     path("history/unclassified-rows/", views.UnclassifiedRowListView.as_view(), name="history-rows"),
+    path("history/empty-profit-cells/", views.EmptyProfitCellListView.as_view(), name="history-empty-profit"),
+    path("history/empty-profit-cells/<int:pk>/correct/", views.EmptyProfitCellCorrectView.as_view(), name="history-empty-profit-correct"),
     path("history/unclassified-rows/decide/", views.UnclassifiedRowDecideView.as_view(), name="history-rows-decide"),
 ]

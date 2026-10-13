@@ -8,10 +8,9 @@ const OFFICE: Role[] = ["OWNER", "ACCOUNTANT"];
 /** The menu. Each role sees only its own entries; the server enforces the same rules again. */
 export const NAV: NavItem[] = [
   { href: "/", label: "Home", roles: ALL },
-  { href: "/sale", label: "New Sale", roles: ALL },
   { href: "/sales", label: "Today's Sales", roles: ALL },
-  { href: "/day/close", label: "Close Day", roles: ALL },
   { href: "/sheet", label: "Daily Sheet", roles: ALL },
+  { href: "/day/close", label: "Close Day", roles: ALL },
   { href: "/closing", label: "Daily Closing", roles: OFFICE },
   { href: "/products", label: "Products", roles: OFFICE },
   { href: "/stock", label: "Stock", roles: OFFICE },
@@ -28,6 +27,7 @@ export const NAV: NavItem[] = [
 /** Pages that exist but are not in the menu. */
 const EXTRA: NavItem[] = [
   { href: "/day/start", label: "Start Day", roles: ALL },
+  { href: "/sale", label: "Daily Sheet", roles: ALL },  // the old New Sale address; it now opens the Daily Sheet
   { href: "/change-password", label: "Change Password", roles: ALL },
   { href: "/help", label: "Help", roles: ALL },
 ];

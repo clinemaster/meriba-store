@@ -21,7 +21,7 @@ const COLUMNS: { key: string; label: string; numeric?: boolean; help: string }[]
   { key: "total_item_stock", label: "Total Stock", numeric: true, help: "Opening stock for the period plus stock received and other stock coming in" },
   { key: "sales", label: "Sales", numeric: true, help: "Quantity sold in the period, in the product's unit. Cancelled sales are not counted" },
   { key: "closing_stock", label: "Closing Stock", numeric: true, help: "Opening stock + stock in − sales − breakages and other stock out" },
-  { key: "purchase_price", label: "Purchase Price", numeric: true, help: "Weighted-average cost of one unit now in stock" },
+  { key: "purchase_price", label: "Purchase Price", numeric: true, help: "What the shop pays for one unit now, as in the Excel sheet" },
   { key: "selling_price", label: "Selling Price", numeric: true, help: "Current approved selling price of one unit" },
   { key: "total_sales", label: "Total Sales", numeric: true, help: "Value of completed sales in the period, less refunds. Worked out from the sales themselves" },
   { key: "profit", label: "Profit", numeric: true, help: "Gross profit: Total Sales less the cost of the goods sold. Expenses are not taken off here" },
@@ -101,9 +101,8 @@ function Details({ id, from, to, isOwner, onClose, onChanged }: { id: number; fr
               {unit !== "Bottle" && (p.bottles_per_unit ? <>; one {unit.toLowerCase()} holds <strong>{p.bottles_per_unit} bottles</strong> (stock now is {formatQty(Number(f.stock) * p.bottles_per_unit)} bottles)</> : `; bottles in one ${unit.toLowerCase()} not recorded`)}.
             </p>
             <p className="mt-1 text-slate-700">
-              Purchase Price (weighted average): <strong>{p.average_cost ? formatTZS(p.average_cost) : "not known yet"}</strong>
-              {p.cost_provisional && <span className="text-amber-800"> (provisional)</span>}
-              {p.cost_price ? ` · last purchase price entered: ${formatTZS(p.cost_price)}` : ""}
+              Purchase Price: <strong>{p.cost_price ? formatTZS(p.cost_price) : "not entered yet"}</strong>. Profit is worked out as in the Excel sheet: quantity sold × (Sales price − Purchase price on the day of the sale).
+              {p.average_cost ? ` For information only: the weighted average of deliveries is ${formatTZS(p.average_cost)}; it is not used in any figure.` : ""}
             </p>
             {p.units.length > 0 && (
               <table className="table mt-2">
@@ -340,7 +339,7 @@ export default function ProductsPage() {
                     <td className="num">{formatQty(r.total_item_stock)}</td>
                     <td className="num">{formatQty(r.sales)}</td>
                     <td className="num">{formatQty(r.closing_stock)}</td>
-                    <td className="num">{r.purchase_price === null ? <span className="text-slate-600" title="No delivery or opening stock with a cost has been recorded yet.">Not known</span> : <>{formatTZS(r.purchase_price)}{r.purchase_price_provisional && <span className="block text-sm text-amber-800">provisional</span>}</>}</td>
+                    <td className="num">{r.purchase_price === null ? <span className="text-slate-600" title="No purchase price has been entered for this product.">Not entered</span> : <>{formatTZS(r.purchase_price)}{r.purchase_price_provisional && <span className="block text-sm text-amber-800">provisional</span>}</>}</td>
                     <td className="num">{Number(r.selling_price) > 0 ? formatTZS(r.selling_price) : <span className="font-semibold text-red-800">⚠ No price</span>}</td>
                     <td className="num">{formatTZS(r.total_sales)}</td>
                     <td className="num font-semibold"><ProfitCell row={r} /></td>

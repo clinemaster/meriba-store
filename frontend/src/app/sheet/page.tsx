@@ -1,13 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 
 import { Alert, Field, Modal, PageTitle, Spinner } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
 import { formatDate, formatQty, formatTZS } from "@/lib/money";
-import type { CurrentDay, PaymentMethod, Sale } from "@/lib/types";
+import type { CurrentDay } from "@/lib/types";
 import { useLoad } from "@/lib/useLoad";
+
+import { SheetSale } from "./SheetSale";
 
 /** The Daily Sheet: the shop's Excel worksheet for one day, with the workbook's headings, order and formulas. */
 type Line = {
@@ -15,8 +17,14 @@ type Line = {
   total_stock: string | null; sales: string | null; closing_stock: string | null; purchase_price?: string | null;
   sales_price: string | null; total_sales: string | null; profit?: string | null; stock: string | null; total_purchases?: string | null;
   other_movements: string; recorded_sales_value: string | null; differs_from_recorded: boolean;
-  source?: string; formula_differs?: string[]; incomplete?: boolean;
+  source?: string; formula_differs?: string[]; incomplete?: boolean; approved_profit?: string | null;
 };
+type EmptyCell = {
+  id: number; date: string; worksheet: string; row: number; product: string; sales: string; purchase_price: string | null;
+  sales_price: string | null; formula_would_give: string | null;
+  correction: { approved_value: string; reason: string; approved_by: string; approved_at: string } | null;
+};
+type EmptyCells = { cells: EmptyCell[]; count: number; awaiting_review: number };
 type Sheet = {
   date: string; source: "LIVE" | "CLOSED" | "EXCEL" | "NONE"; note: string; lines: Line[];
   totals: Record<string, string>;
@@ -38,7 +46,10 @@ export default function DailySheetPage() {
   const [typed, setTyped] = useState<Record<number, string>>({});
   const [entry, setEntry] = useState<{ line: Line; quantity: number } | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  const [find, setFind] = useState("");
   const data = sheet.data;
+  const words = find.toLowerCase().split(/\s+/).filter(Boolean);
+  const visible = (data?.lines ?? []).filter((l) => words.every((w) => l.details.toLowerCase().includes(w)));
 
   // Purchase prices and profit are sent to the Owner and Accountant only; the cashier's sheet has no such columns.
   const office = !!data?.columns.some((c) => c.key === "profit");
@@ -72,6 +83,9 @@ export default function DailySheetPage() {
           <Alert kind={KIND[data.source]}><strong>{formatDate(data.date)}.</strong> {data.note}</Alert>
           {saved && <Alert kind="success">{saved}</Alert>}
           {canType && <Alert kind="info">To record a sale, type the quantity sold in the “Add to Sales” box beside the product and press Save. You can do this as often as you need during the day; each entry is added to the Sales column.</Alert>}
+          {data.lines.length > 1 && (
+            <div className="max-w-md"><Field label="Find a product on the sheet">{(p) => <input {...p} className="input" value={find} autoComplete="off" placeholder="Type part of the name" onChange={(e) => setFind(e.target.value)} />}</Field></div>
+          )}
           {data.source === "NONE" && !office && (
             <div className="card max-w-xl space-y-3"><p>Start your day to open today&apos;s sheet.</p><Link href="/day/start" className="btn-primary">Start Day</Link></div>
           )}
@@ -99,7 +113,7 @@ export default function DailySheetPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.lines.map((l) => {
+                  {visible.map((l) => {
                     const flagged = new Set(l.formula_differs ?? []);
                     const left = Number(l.closing_stock ?? 0);
                     return (
@@ -116,6 +130,7 @@ export default function DailySheetPage() {
                             <td key={c.key} className={`num ${c.key === "closing_stock" ? "font-semibold" : ""} ${warn ? "bg-amber-50 font-semibold" : ""}`}
                               title={warn ? "Written differently in the workbook from what its formula gives" : undefined}>
                               {warn ? `⚠ ${text || "(empty)"}` : text}
+                              {c.key === "profit" && l.approved_profit && <span className="block text-sm font-normal text-slate-700" title="Approved by the Owner. The workbook's cell is still empty.">Owner approved {n(l.approved_profit)}</span>}
                               {c.key === "total_sales" && l.differs_from_recorded && <span className="block text-sm text-slate-600" title="Money actually taken for this product, after refunds">taken {n(l.recorded_sales_value)}</span>}
                             </td>
                           );
@@ -147,6 +162,8 @@ export default function DailySheetPage() {
             )}
           </div>
 
+          {office && <EmptyProfitCells onOpen={setDate} onChanged={sheet.reload} />}
+
           <details className="card text-sm text-slate-700">
             <summary className="cursor-pointer font-semibold">How each column is worked out (the same sums as the Excel workbook)</summary>
             <ul className="ml-5 mt-2 list-disc space-y-1">
@@ -166,8 +183,7 @@ export default function DailySheetPage() {
         <SheetSale line={entry.line} quantity={entry.quantity} onClose={() => setEntry(null)}
           onSaved={(sale) => {
             setTyped((t) => ({ ...t, [entry.line.number]: "" }));
-            setSaved(`Saved: ${formatQty(entry.quantity)} × ${entry.line.details}, ${formatTZS(sale.total)}. Receipt ${sale.receipt_number}.`);
-            setEntry(null);
+            setSaved(`Saved: ${sale.items.map((i) => `${formatQty(i.quantity)} ${i.unit_name} × ${i.product_name}`).join(", ")}, ${formatTZS(sale.total)}. Receipt ${sale.receipt_number}.`);
             sheet.reload();
           }} />
       )}
@@ -175,65 +191,73 @@ export default function DailySheetPage() {
   );
 }
 
-/** One quantity typed on the sheet becomes an ordinary sale, so stock, the cash count and the reports all agree. */
-function SheetSale({ line, quantity, onClose, onSaved }: { line: Line; quantity: number; onClose: () => void; onSaved: (sale: Sale) => void }) {
-  const methods = useLoad<PaymentMethod[]>("/payment-methods/");
-  const active = (methods.data ?? []).filter((m) => m.is_active);
-  const [methodId, setMethodId] = useState<number | null>(null);
-  const [reference, setReference] = useState("");
+/** Profit cells the workbook left empty on a line with sales. They stay empty; only the Owner may approve a figure. */
+function EmptyProfitCells({ onOpen, onChanged }: { onOpen: (date: string) => void; onChanged: () => void }) {
+  const cells = useLoad<EmptyCells>("/history/empty-profit-cells/");
+  const me = useLoad<{ role: string }>("/auth/me/");
+  const [open, setOpen] = useState<EmptyCell | null>(null);
+  const [value, setValue] = useState("");
+  const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  // One key for this entry. It stays the same if Save is pressed again, so the sale can only be saved once.
-  const requestKey = useRef(crypto.randomUUID());
-  const total = quantity * Number(line.sales_price ?? 0);
-  const method = active.find((m) => m.id === methodId);
+  if (!cells.data || cells.data.count === 0) return null;
 
-  useEffect(() => {
-    if (methodId === null && active.length) setMethodId((active.find((m) => m.is_cash) ?? active[0]).id);
-  }, [active, methodId]);
-
-  async function save() {
-    if (busy || !method) return;
+  async function approve() {
+    if (!open || busy) return;
     setBusy(true);
     setProblem(null);
     try {
-      onSaved(await api<Sale>("/sales/", {
-        method: "POST",
-        body: { request_key: requestKey.current, items: [{ product: line.product, quantity }], payments: [{ method: method.id, amount: String(total), reference }] },
-      }));
+      await api(`/history/empty-profit-cells/${open.id}/correct/`, { method: "POST", body: { approved_value: value, reason } });
+      setOpen(null);
+      cells.reload();
+      onChanged();
     } catch (err) {
       setProblem(errorMessage(err));
+    } finally {
       setBusy(false);
     }
   }
 
   return (
-    <Modal title="Save this sale" onClose={onClose}>
-      <div className="space-y-4">
-        <p className="text-lg"><strong>{formatQty(quantity)}</strong> × {line.details} at {formatTZS(line.sales_price ?? "0")} = <strong>{formatTZS(String(total))}</strong></p>
-        <div>
-          <p className="mb-2 font-semibold">How did the customer pay?</p>
-          {methods.loading ? <Spinner /> : (
-            <div role="radiogroup" aria-label="Payment method" className="grid grid-cols-3 gap-2">
-              {active.map((m) => (
-                <button key={m.id} type="button" role="radio" aria-checked={methodId === m.id} onClick={() => setMethodId(m.id)}
-                  className={`btn min-h-[3.5rem] border-2 px-2 ${methodId === m.id ? "border-brand-700 bg-brand-600 text-white" : "border-slate-300 bg-white"}`}>
-                  {methodId === m.id ? "✔ " : ""}{m.name}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        {method && !method.is_cash && (
-          <Field label={`${method.reference_label || "Reference"} (optional)`}>{(p) => <input {...p} className="input" maxLength={60} value={reference} onChange={(e) => setReference(e.target.value)} />}</Field>
-        )}
-        <p className="text-sm text-slate-600">For a customer paying part in cash and part another way, use New Sale instead.</p>
-        {problem && <Alert kind="error">{problem}</Alert>}
-        <div className="flex flex-wrap gap-3">
-          <button className="btn-primary" disabled={busy || !method} onClick={save}>{busy ? "Saving…" : "Save sale"}</button>
-          <button className="btn-secondary" disabled={busy} onClick={onClose}>Cancel</button>
-        </div>
+    <details className="card">
+      <summary className="cursor-pointer font-semibold">
+        Empty Profit cells in the Excel workbook: {cells.data.count} ({cells.data.awaiting_review} waiting for the Owner&apos;s review)
+      </summary>
+      <p className="mt-2 text-sm text-slate-700">On these lines the workbook shows sales but its Profit cell is empty. They are kept empty here and are not counted in the workbook&apos;s totals. Nothing is filled in automatically. If the Owner approves a figure, it is recorded beside the cell with the reason, the name and the date.</p>
+      <div className="mt-3 overflow-x-auto">
+        <table className="table">
+          <thead><tr><th>Sheet</th><th>Row</th><th>Product</th><th className="num">Sales</th><th className="num">Purchase price</th><th className="num">Sales price</th><th className="num">Profit in workbook</th><th className="num">The workbook&apos;s sum would give</th><th>Owner&apos;s decision</th></tr></thead>
+          <tbody>
+            {cells.data.cells.map((c) => (
+              <tr key={c.id}>
+                <td><button className="font-semibold text-brand-700 underline" onClick={() => onOpen(c.date)}>{c.worksheet}</button></td>
+                <td>{c.row}</td><td>{c.product}</td><td className="num">{n(c.sales)}</td><td className="num">{n(c.purchase_price)}</td><td className="num">{n(c.sales_price)}</td>
+                <td className="num">(empty)</td><td className="num">{n(c.formula_would_give)}</td>
+                <td>{c.correction
+                  ? <span className="text-sm">Approved {n(c.correction.approved_value)} by {c.correction.approved_by}, {formatDate(c.correction.approved_at)}. {c.correction.reason}</span>
+                  : me.data?.role === "OWNER"
+                    ? <button className="btn-secondary min-h-[2.5rem]" onClick={() => { setOpen(c); setValue(""); setReason(""); setProblem(null); }}>Approve a figure…</button>
+                    : <span className="text-sm text-slate-600">Waiting for the Owner</span>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
-    </Modal>
+      {open && (
+        <Modal title="Approve a Profit figure" onClose={() => setOpen(null)}>
+          <div className="space-y-4">
+            <p>{open.worksheet}, row {open.row}: <strong>{open.product}</strong>. {n(open.sales)} sold at {n(open.sales_price)}, purchase price {n(open.purchase_price)}. The workbook&apos;s sum would give {n(open.formula_would_give) || "no figure"}.</p>
+            <p className="text-sm text-slate-700">The workbook&apos;s cell stays empty. Your figure is recorded beside it and cannot be replaced afterwards.</p>
+            <Field label="Approved Profit (TZS)">{(p) => <input {...p} className="input" inputMode="numeric" value={value} onChange={(e) => setValue(e.target.value.replace(/[^0-9.-]/g, ""))} />}</Field>
+            <Field label="Reason">{(p) => <textarea {...p} className="input" rows={2} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />}</Field>
+            {problem && <Alert kind="error">{problem}</Alert>}
+            <div className="flex flex-wrap gap-3">
+              <button className="btn-primary" disabled={busy || value === "" || reason.trim().length < 5} onClick={approve}>{busy ? "Saving…" : "Record the approved figure"}</button>
+              <button className="btn-secondary" disabled={busy} onClick={() => setOpen(null)}>Cancel</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </details>
   );
 }

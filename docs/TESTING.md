@@ -7,7 +7,7 @@
 | Backend rules and permissions | pytest + pytest-django against **real PostgreSQL** | Money, stock, closing and role rules, through the same HTTP API the website uses |
 | Simultaneous requests | pytest with real threads and separate database connections | No overselling, no duplicate sale, no clash between a sale and a closing |
 | Website logic | Vitest | Money maths in whole cents; which role sees which menu and page |
-| Website critical screen | Vitest + Testing Library | New Sale: totals, stock limit, change, double-click, retry after a lost connection |
+| Website critical screen | Vitest + Testing Library | Sale window of the Daily Sheet: totals, stock limit, change, package, split payment, double-click, retry after a lost connection |
 | Whole system, in a real browser | Playwright driving Chromium through the real screens, against a throwaway database | A person can actually do the job: the screens, buttons, forms and messages work together with the backend |
 
 Tests use their own database (`test_meriba_lsms`), created automatically. They never touch real data.
@@ -92,7 +92,7 @@ Two files run in order and share one throwaway database.
 2. **Owner sets up and goes live:** adds two products (typing key by key), is refused a product on sale without a
    price, adds a cashier, fills the physical count sheet, approves it, and goes live. The go-live button stays
    disabled until TZS 0 is confirmed as a new baseline.
-3. **Cashier:** is made to choose their own password; sees only Home, New Sale, Today's Sales, Close Day; typing the
+3. **Cashier:** is made to choose their own password; sees only Home, Today's Sales, Daily Sheet, Close Day; types sales on the Daily Sheet; typing the
    address of the Users page shows "not available"; starts the day with a float; makes a cash sale with change and a
    sale split between cash and mobile money (blocked while money is still owed); sees stock go down; makes a third
    sale; can open a receipt but has no cancel or refund buttons.

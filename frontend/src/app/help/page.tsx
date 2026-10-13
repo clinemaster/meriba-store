@@ -13,17 +13,18 @@ const CASHIER: Topic[] = [
     "Type the cash float: the money you were given to make change. Type 0 if there is none.",
     "Press Start Day. You can now sell.",
   ] },
-  { title: "Make a sale", link: { href: "/sale", label: "New Sale" }, steps: [
-    "Press New Sale.",
-    "Type part of the product name and press the product. Press it again to add one more.",
+  { title: "Record a sale on the Daily Sheet", link: { href: "/sheet", label: "Daily Sheet" }, steps: [
+    "Press Daily Sheet. It is the same sheet as in Excel, one row for each product.",
+    "Find the product. You can type part of its name in the “Find a product” box.",
+    "Type the quantity sold in the “Add to Sales” box on that row and press Save.",
     "Check the Total to pay.",
     "Choose how the customer pays. For cash, type the money they handed you and the screen shows the change.",
-    "Press Complete Sale and wait for the “Sale saved” message.",
-    "Press Print Receipt if the customer wants one, then Next Sale.",
+    "Press Save sale and wait for the “Sale saved” message.",
+    "Press Print Receipt if the customer wants one, then Back to the sheet. The Sales and Closing stock columns have changed.",
   ] },
   { title: "If the screen says it could not reach the shop system", steps: [
     "Nothing is lost. Your sale is still on the screen.",
-    "Check the connection, then press Complete Sale again. The sale will be saved only once.",
+    "Check the connection, then press Save sale again. The sale will be saved only once.",
   ] },
   { title: "You made a mistake on a sale", steps: [
     "A completed sale cannot be changed by the cashier.",

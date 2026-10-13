@@ -5,9 +5,35 @@ source of truth, and without substituting other formulas.
 
 ## How the workbook works
 
-Established from the values of all 31 sheets (3,503 product lines, 434 rows under the product list).
-**The formula text in the cells has not been read**: Excel had the workbook open, which blocks other programs from
-reading it. Every calculated figure was instead recomputed and compared; see "Validation".
+First established from the values of all 31 sheets (3,503 product lines), then **confirmed on 13 Oct 2026 by reading
+the formulas themselves** from a separate copy of the workbook. The original file was not opened for writing or changed.
+
+### The formulas in the cells
+
+| Column | Formula in the cell (row 4 as the example) | Found in |
+|---|---|---|
+| C Opening stock (headed "2") | none: a typed number, copied by hand from the previous sheet | all lines |
+| D Add Purchases | none: typed | 117 lines have a figure |
+| E Total stock | `=C4+D4` | every line |
+| F Sales | none: typed | 868 lines have a figure |
+| G Closing stock | `=E4-F4` | every line |
+| H Purchase price, I Sales price | none: typed | |
+| J Total Sales | `=F4*I4` | every line |
+| K Profit | `=(I4-H4)*F4` | 3,232 lines; **the cell is empty on the other 271** |
+| L Stock | `=G4*I4` | every line |
+| M T.Purchases | `=D4*H4` | all but 39 lines, where the cell is empty |
+| Totals | `=SUM(K4:K116)`, `=SUM(L4:L116)`, `=SUM(J4:J117)`, `=SUM(M4:M118)` | every sheet |
+
+Other things the formulas show:
+
+- **No sheet refers to another sheet**, and the workbook has no links to other files and no named ranges. Opening
+  stock is not a formula: each day's opening figures were typed (or pasted) from the previous day's closing figures.
+  That is why a gap in the dates breaks the chain silently. The system carries the figure forward itself.
+- **The 271 empty Profit cells have no formula at all.** On 258 of them nothing was sold, so nothing is missing.
+  On 13 there were sales: these are the cells flagged for the Owner (see "The 13 empty Profit cells").
+- **The sheet for 9 October has two extra columns** (the pack, such as "Box (24)", and a description, such as
+  "200mls") after Details. Every formula is the same, moved two columns to the right.
+- The seven typed amounts under the product list and the sums built on them are as described below.
 
 One worksheet per day, named `DD.MM.YYYY`. One row per product. The person types three things:
 
@@ -70,7 +96,7 @@ so it can be repeated after any further import.
 
 - the workbook's column headings in the workbook's order: S/N, Details, Opening stock, Add Purchases, Total stock,
   Sales, Closing stock, Purchase price, Sales price, Total Sales, Profit, Stock, T.Purchases; a TOTAL row;
-- the workbook's sums, unchanged. This screen does **not** use the weighted-average cost of the Products screen;
+- the workbook's sums, unchanged;
 - **Excel days** (31 Aug – 9 Oct): shown exactly as written. A cell that differs from the workbook's own sum
   (the 13 empty Profit cells) is marked ⚠ and left as it is;
 - **live days**: filled in automatically. Add Purchases comes from deliveries recorded, Sales from sales recorded,
@@ -83,22 +109,54 @@ Two things the workbook has no column for are shown rather than hidden: an **Oth
 correction or breakage also moved stock that day, and a "taken" figure when the money actually taken differs from
 Sales × Sales price.
 
-## Typing sales on the sheet (decided 13 Oct 2026)
+## Sales are entered on the Daily Sheet only (decided 13 Oct 2026)
 
-The cashier types sales on today's sheet at any time during the day. Each line has an "Add to Sales" box: the
-quantity typed is **added** to the day's Sales for that product, after the cashier says how it was paid. Behind the
-sheet each entry is an ordinary sale (receipt number, payment method), the same record the New Sale screen makes, so
-the two can be used side by side without counting anything twice and the cash count at closing still has something to
-check against. Differences from Excel, on purpose:
+The Daily Sheet is the primary and only sales-entry screen. The separate New Sale screen has been removed; its old
+address opens the Daily Sheet. The cashier types sales on today's sheet at any time during the day:
+
+1. each line has an "Add to Sales" box. The quantity typed is **added** to the day's Sales for that product;
+2. a window asks how it was paid: cash (with the change to give), mobile money, bank, or more than one of them. If
+   the product has a verified package (a crate of 12), it can be sold as a package at the package's own price;
+3. the sale is saved in the database as a transaction with a receipt number, which can be printed;
+4. the sheet works out Total stock, Closing stock, Total Sales, Profit and Stock with the workbook's formulas.
+
+What is kept from before: stock checks (a quantity larger than the stock left is refused), one save per entry even
+on a double click or a lost connection, Today's Sales, cancelling and refunding with a reason, cash reconciliation at
+closing, and the audit history.
+
+Differences from Excel, on purpose:
 
 - a quantity already saved is not typed over. A mistake is cancelled or refunded in Today's Sales, with a reason;
-- the cashier's sheet shows today only, without Purchase price, Profit and T.Purchases (the server does not send them);
-- a quantity larger than the stock left is refused.
+- one entry is one product. A customer buying three products is three entries and three receipts;
+- the cashier's sheet shows today only, without Purchase price, Profit and T.Purchases (the server does not send them).
 
-## Not built, waiting for the owner's answers
+## Profit (decided 13 Oct 2026)
+
+Profit = Sales × (Sales price − Purchase price), with the purchase price recorded for that business day, exactly as
+`=(I4-H4)*F4`. Weighted-average costing is not used in any figure and must not be introduced without the owner's
+explicit approval.
+
+- When a sale is saved, the product's purchase price at that moment is stored on the sale line.
+- When a day is closed, its sheet is stored with that day's purchase and sales prices.
+- So changing a product's price later changes neither the profit of past sales nor past sheets.
+- The Products screen and the profit report use the same rule. The weighted average of deliveries is still shown in a
+  product's Details, marked "for information only".
+
+## The 13 empty Profit cells (decided 13 Oct 2026)
+
+Kept empty. Nothing is filled in automatically, and the workbook's totals are shown as the workbook has them.
+
+- On the Daily Sheet for an Excel day the cell is marked ⚠ (empty).
+- The Daily Sheet screen lists all 13 under "Empty Profit cells in the Excel workbook", for the Owner's review, with
+  what the workbook's formula would give shown beside each one as information.
+- Only the Owner can approve a figure. The approval records the figure, the reason, the Owner's name and the date, and
+  is written to the audit history. The historical record keeps its empty cell; the approved figure is shown beside it.
+  An approval cannot be replaced afterwards.
+- New transactions always have their profit calculated.
+
+## Not built
 
 1. **Typing Add Purchases directly on the sheet.** It is filled from deliveries entered on Receive Stock.
-2. **The 13 empty Profit cells.** Shown as empty for the Excel days. For live days the sum is always applied.
 
 ## Deliberately left out
 

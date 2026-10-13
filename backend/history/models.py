@@ -258,3 +258,20 @@ class HistoryAcceptance(AppendOnlyModel):
 
     class Meta:
         ordering = ["-id"]
+
+
+class ProfitCellCorrection(AppendOnlyModel):
+    """An Owner-approved figure for a Profit cell the workbook left empty (owner's decision, 13 Oct 2026).
+
+    The historical record itself is never changed: its Profit stays empty. This row sits beside it and says
+    what the Owner approved, why, who and when.
+    """
+
+    record = models.OneToOneField(HistoricalRecord, on_delete=models.PROTECT, related_name="profit_correction")
+    approved_value = models.DecimalField(max_digits=18, decimal_places=2)
+    reason = models.CharField(max_length=500)
+    approved_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    approved_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["record__business_date", "record__source_row"]

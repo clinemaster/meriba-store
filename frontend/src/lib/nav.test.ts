@@ -4,7 +4,7 @@ import { canOpen, navFor } from "./nav";
 
 describe("menus by role", () => {
   it("cashier sees only daily sales functions", () => {
-    expect(navFor("CASHIER").map((i) => i.label)).toEqual(["Home", "New Sale", "Today's Sales", "Close Day", "Daily Sheet"]);
+    expect(navFor("CASHIER").map((i) => i.label)).toEqual(["Home", "Today's Sales", "Daily Sheet", "Close Day"]);
   });
   it("accountant sees finance, stock and reports but not users", () => {
     const labels = navFor("ACCOUNTANT").map((i) => i.label);

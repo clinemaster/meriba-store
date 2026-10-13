@@ -138,7 +138,7 @@ def _stock_rows(only_low=False):
             "status": {"IN_STOCK": "In stock", "LOW_STOCK": "Low stock", "OUT_OF_STOCK": "Out of stock"}[status],
             "suggested_order": max(p.target_stock - qty, ZERO),  # FR-LOW-04: never negative
             # Valued at the weighted-average cost of what is in stock, not at the latest purchase price.
-            "cost_price": p.average_cost, "stock_value": None if p.average_cost is None else qty * p.average_cost,
+            "cost_price": p.cost_price, "stock_value": None if p.cost_price is None else qty * p.cost_price,
         })
     return rows
 

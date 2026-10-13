@@ -1,4 +1,5 @@
 import csv
+from decimal import Decimal
 from io import BytesIO
 
 from django.db.models import Q
@@ -499,3 +500,66 @@ class ExceptionReportView(APIView):
                              row.decided_at.date() if row.decided_at else ""])
         audit(request.user, "report.exported", summary="Exported the historical data exception report")
         return response
+
+
+def _empty_profit_cells():
+    """Profit cells the workbook left empty on a line that has sales. Nothing here is filled in or changed."""
+    return (HistoricalRecord.objects.filter(profit__isnull=True, sold_qty__gt=0).exclude(import_status="REJECTED")
+            .select_related("source_product", "profit_correction", "profit_correction__approved_by").order_by("business_date", "source_row"))
+
+
+def _empty_profit_cell(record) -> dict:
+    known = record.purchase_price is not None and record.sales_price is not None
+    correction = getattr(record, "profit_correction", None)
+    return {
+        "id": record.pk, "date": record.business_date, "worksheet": record.worksheet, "row": record.source_row,
+        "product": record.source_product.source_name, "sales": str(record.sold_qty.normalize()),
+        "purchase_price": None if record.purchase_price is None else str(record.purchase_price),
+        "sales_price": None if record.sales_price is None else str(record.sales_price),
+        "written": None,  # the cell is empty in the workbook and stays empty here
+        "formula_would_give": str((record.sold_qty * (record.sales_price - record.purchase_price)).quantize(Decimal("0.01"))) if known else None,
+        "correction": None if correction is None else {
+            "approved_value": str(correction.approved_value), "reason": correction.reason,
+            "approved_by": correction.approved_by.get_full_name() or correction.approved_by.username, "approved_at": correction.approved_at},
+    }
+
+
+class EmptyProfitCellListView(APIView):
+    """The empty Profit cells, flagged for the Owner's review."""
+
+    permission_classes = [IsOwnerOrAccountant]
+
+    @extend_schema(responses={200: dict})
+    def get(self, request):
+        cells = [_empty_profit_cell(r) for r in _empty_profit_cells()]
+        return Response({"cells": cells, "count": len(cells), "awaiting_review": sum(1 for c in cells if c["correction"] is None)})
+
+
+class ProfitCorrectionSerializer(serializers.Serializer):
+    approved_value = serializers.DecimalField(max_digits=18, decimal_places=2)
+    reason = serializers.CharField(max_length=500, min_length=5)
+
+
+class EmptyProfitCellCorrectView(APIView):
+    """The Owner approves a figure for one empty Profit cell. The record keeps its empty cell; the approval is kept beside it."""
+
+    permission_classes = [IsOwner]
+
+    @extend_schema(request=ProfitCorrectionSerializer, responses={201: dict})
+    def post(self, request, pk):
+        from .models import ProfitCellCorrection
+
+        data = ProfitCorrectionSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        record = _empty_profit_cells().filter(pk=pk).first()
+        if record is None:
+            raise BusinessRuleError("We could not find that empty Profit cell.", code="not_found", status_code=404)
+        if hasattr(record, "profit_correction"):
+            raise BusinessRuleError("A correction has already been approved for this cell. It cannot be replaced.", code="already_corrected")
+        correction = ProfitCellCorrection.objects.create(record=record, approved_by=request.user, **data.validated_data)
+        where = f"{record.worksheet} row {record.source_row} {record.source_product.source_name}"
+        audit(request.user, "history.profit_correction_approved", record, reason=correction.reason,
+              summary=f"Approved Profit of {correction.approved_value:,.0f} for the empty cell at {where}",
+              before={"profit": None}, after={"approved_profit": correction.approved_value})
+        record.profit_correction = correction
+        return Response(_empty_profit_cell(record), status=201)

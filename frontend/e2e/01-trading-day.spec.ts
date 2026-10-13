@@ -79,7 +79,7 @@ test("owner sets up the shop and goes live", async ({ page }) => {
   await expect(safariRow).toContainText("Crate");
   await expect(safariRow).toContainText("25 bottles");
   await expect(safariRow).toContainText("500 ml");
-  await expect(safariRow).toContainText("Not known"); // no stock yet, so no purchase cost to average
+  await expect(safariRow).toContainText("TZS 34,000"); // the purchase price entered, as on the Excel sheet
   // a product cannot be put on sale without a price
   await page.getByRole("button", { name: "+ Add Product" }).click();
   await page.getByRole("dialog").getByLabel("Product Name").fill("mkwawa");
@@ -134,7 +134,7 @@ test("cashier chooses a password, starts the day and sells", async ({ page }) =>
 
   // the cashier sees only daily selling
   const menu = page.getByRole("navigation", { name: "Main menu" });
-  await expect(menu.getByRole("link")).toHaveText(["Home", "New Sale", "Today's Sales", "Close Day", "Daily Sheet"]);
+  await expect(menu.getByRole("link")).toHaveText(["Home", "Today's Sales", "Daily Sheet", "Close Day"]);
   await page.goto("/users");
   await expect(page.getByText("This page is not available for your account")).toBeVisible();
   await page.goto("/");
@@ -143,44 +143,51 @@ test("cashier chooses a password, starts the day and sells", async ({ page }) =>
   await expect(page.getByText("Opening cumulative sales balance")).toBeVisible();
   await page.getByLabel("Cash float in the drawer (TZS)").fill("100000");
   await page.getByRole("button", { name: /Start Day with TZS 100,000 float/ }).click();
-  await expect(page).toHaveURL(/\/sale$/);
+  await expect(page).toHaveURL(/\/sheet$/);
+
+  // Sales are typed on the Daily Sheet, the only place they are entered
+  await expect(page.getByRole("heading", { level: 1, name: "Daily Sheet" })).toBeVisible();
+  const konyagi = page.getByRole("row").filter({ hasText: "Konyagi ndogo 200ml" });
+  const entry = page.getByRole("dialog", { name: "Save this sale" });
+  const saved = page.getByRole("dialog", { name: "Sale saved" });
 
   // Sale 1: two bottles, cash with change
-  await page.getByLabel("1. Find the product").fill("kony");
-  const konyagi = page.getByRole("button", { name: /Konyagi ndogo 200ml.*in stock/ });
-  await konyagi.click();
-  await konyagi.click();
-  await expect(page.getByTestId("sale-total")).toHaveText("TZS 9,000");
-  await page.getByLabel("Cash received (TZS)").fill("10000");
-  await expect(page.getByText("Change to give back")).toBeVisible();
-  await page.getByRole("button", { name: /Complete Sale/ }).click();
-  const saved = page.getByRole("dialog", { name: "Sale saved" });
+  await page.getByLabel("Quantity of Konyagi ndogo 200ml sold").fill("2");
+  await page.getByRole("button", { name: "Save sale of Konyagi ndogo 200ml" }).click();
+  await expect(entry.getByTestId("sale-total")).toHaveText("TZS 9,000");
+  await entry.getByLabel("Cash received (TZS)").fill("10000");
+  await expect(entry.getByText("Change to give back")).toBeVisible();
+  await entry.getByRole("button", { name: /^Save sale/ }).click();
   await expect(saved).toContainText(/MB-\d{8}-0001/);
   await expect(saved).toContainText("Give change: TZS 1,000");
-  await saved.getByRole("button", { name: "Next Sale" }).click();
-  await expect(page.getByTestId("sale-total")).toHaveText("TZS 0");
+  await expect(saved.getByRole("button", { name: "Print Receipt" })).toBeVisible();
+  await saved.getByRole("button", { name: "Back to the sheet" }).click();
+  // the sheet has worked out the rest: Sales 2, Closing stock 48 - 2
+  await expect(konyagi.getByRole("cell").nth(5)).toHaveText("2");
+  await expect(konyagi.getByRole("cell").nth(6)).toHaveText("46");
 
   // Sale 2: one crate, part cash and part mobile money
-  await page.getByLabel("1. Find the product").fill("safari");
-  await page.getByRole("button", { name: /Safari Kubwa.*in stock/ }).click();
-  await page.getByRole("button", { name: "Customer is paying with more than one method" }).click();
-  await page.getByLabel("Cash received (TZS)").fill("6000");
-  await expect(page.getByText(/Still to pay: TZS 30,000/)).toBeVisible();
-  await expect(page.getByRole("button", { name: /Complete Sale/ })).toBeDisabled();
-  await page.getByLabel("Mobile Money amount (TZS)").fill("30000");
-  await page.getByRole("button", { name: /Complete Sale/ }).click();
-  await expect(page.getByRole("dialog", { name: "Sale saved" })).toContainText(/MB-\d{8}-0002/);
-  await page.getByRole("button", { name: "Next Sale" }).click();
-
-  // stock on the sale screen has gone down
-  await page.getByLabel("1. Find the product").fill("kony");
-  await expect(page.getByRole("button", { name: /Konyagi ndogo 200ml.*46 Bottle in stock/ })).toBeVisible();
+  await page.getByLabel("Find a product on the sheet").fill("safari");
+  await expect(konyagi).toHaveCount(0);
+  await page.getByLabel(/Quantity of Safari Kubwa.* sold/).fill("1");
+  await page.getByRole("button", { name: /Save sale of Safari Kubwa/ }).click();
+  await entry.getByRole("button", { name: "Customer is paying with more than one method" }).click();
+  await entry.getByLabel("Cash received (TZS)").fill("6000");
+  await expect(entry.getByText(/Still to pay: TZS 30,000/)).toBeVisible();
+  await expect(entry.getByRole("button", { name: /^Save sale/ })).toBeDisabled();
+  await entry.getByLabel("Mobile Money amount (TZS)").fill("30000");
+  await entry.getByRole("button", { name: /^Save sale/ }).click();
+  await expect(saved).toContainText(/MB-\d{8}-0002/);
+  await saved.getByRole("button", { name: "Back to the sheet" }).click();
+  await page.getByLabel("Find a product on the sheet").fill("");
 
   // Sale 3: one bottle, exact cash (the Owner will cancel this one later)
-  await page.getByRole("button", { name: /Konyagi ndogo 200ml.*in stock/ }).click();
-  await page.getByRole("button", { name: /Complete Sale/ }).click();
-  await expect(page.getByRole("dialog", { name: "Sale saved" })).toContainText(/MB-\d{8}-0003/);
-  await page.getByRole("button", { name: "Next Sale" }).click();
+  await page.getByLabel("Quantity of Konyagi ndogo 200ml sold").fill("1");
+  await page.getByRole("button", { name: "Save sale of Konyagi ndogo 200ml" }).click();
+  await entry.getByRole("button", { name: /^Save sale/ }).click();
+  await expect(saved).toContainText(/MB-\d{8}-0003/);
+  await saved.getByRole("button", { name: "Back to the sheet" }).click();
+  await expect(konyagi.getByRole("cell").nth(5)).toHaveText("3");
 
   await openScreen(page, "Today's Sales", "Today's Sales");
   await expect(page.getByRole("row").filter({ hasText: /MB-\d{8}-000/ })).toHaveCount(3);
@@ -207,7 +214,7 @@ test("owner receives stock, refunds an item and records an expense during the da
   await openScreen(page, "Home", /Hello, Test Owner/);
   await page.getByRole("link", { name: "Start Day" }).click();
   await page.getByRole("button", { name: /Start Day with TZS 0 float/ }).click();
-  await expect(page).toHaveURL(/\/sale$/);
+  await expect(page).toHaveURL(/\/sheet$/);
 
   // Refund one bottle in cash: with two drawers open, the screen must ask which one
   await openScreen(page, "Today's Sales", "Sales");
@@ -342,34 +349,38 @@ test("owner receives stock, refunds an item and records an expense during the da
 test("cashier closes the day with the cash count", async ({ page }) => {
   await signIn(page, CASHIER.username, CASHIER.own);
 
-  // One more sale first: a whole crate of Konyagi, the package the Owner configured and verified (12 bottles)
-  await openScreen(page, "New Sale", "New Sale");
-  await page.getByLabel("1. Find the product").fill("kony");
-  await expect(page.getByRole("button", { name: /Konyagi ndogo 200ml.*71 Bottle in stock/ })).toBeVisible();
-  await page.getByRole("button", { name: /Sell a whole crate of Konyagi ndogo \(12 bottles\)/ }).click();
-  await expect(page.getByLabel("Quantity of Konyagi ndogo 200ml (Crate of 12)")).toHaveValue("1");
-  await expect(page.getByTestId("sale-total")).toHaveText("TZS 50,000");
-  await page.getByRole("button", { name: /Complete Sale/ }).click();
-  await expect(page.getByRole("dialog", { name: "Sale saved" })).toContainText("1 Crate x 50,000");
-  await page.getByRole("button", { name: "Next Sale" }).click();
-  await page.getByLabel("1. Find the product").fill("kony");
-  await expect(page.getByRole("button", { name: /Konyagi ndogo 200ml.*59 Bottle in stock/ })).toBeVisible(); // 71 - 12
-
   // The Daily Sheet, as the cashier sees it: no purchase price or profit, and a box to type the quantity sold
   await openScreen(page, "Daily Sheet", "Daily Sheet");
   await expect(page.getByRole("columnheader")).toHaveText([
     "S/N", "Details", "Opening stock", "Add Purchases", "Total stock", "Sales", "Closing stock", "Sales price", "Total Sales", "Stock", "Other", "Add to Sales"]);
   await expect(page.getByRole("button", { name: "Previous sheet" })).toHaveCount(0);
+  const konyagi = page.getByRole("row").filter({ hasText: "Konyagi ndogo 200ml" });
+  const entry = page.getByRole("dialog", { name: "Save this sale" });
+  const saved = page.getByRole("dialog", { name: "Sale saved" });
+  await expect(konyagi.getByRole("cell").nth(6)).toHaveText("71");
+
+  // One more sale first: a whole crate of Konyagi, the package the Owner configured and verified (12 bottles)
   await page.getByLabel("Quantity of Konyagi ndogo 200ml sold").fill("1");
   await page.getByRole("button", { name: "Save sale of Konyagi ndogo 200ml" }).click();
-  const typedSale = page.getByRole("dialog", { name: "Save this sale" });
-  await expect(typedSale).toContainText("TZS 4,500");
-  await typedSale.getByRole("radio", { name: "Mobile Money" }).click();
-  await typedSale.getByRole("button", { name: "Save sale" }).click();
-  await expect(page.getByText(/Saved: 1 × Konyagi ndogo 200ml, TZS 4,500\. Receipt/)).toBeVisible();
-  // Sales 14 -> 15, Closing stock 59 -> 58, straight away
-  await expect(page.getByRole("row").filter({ hasText: "Konyagi ndogo 200ml" }).getByRole("cell").nth(5)).toHaveText("15");
-  await expect(page.getByRole("row").filter({ hasText: "Konyagi ndogo 200ml" }).getByRole("cell").nth(6)).toHaveText("58");
+  await entry.getByLabel("Sold as").selectOption({ label: "Crate of 12 · TZS 50,000" });
+  await expect(entry.getByTestId("sale-total")).toHaveText("TZS 50,000");
+  await entry.getByRole("button", { name: /^Save sale/ }).click();
+  await expect(saved).toContainText("1 Crate x 50,000");
+  await saved.getByRole("button", { name: "Back to the sheet" }).click();
+  // the sheet counts the crate as 12 bottles: Sales 2 -> 14, Closing stock 71 -> 59
+  await expect(konyagi.getByRole("cell").nth(5)).toHaveText("14");
+  await expect(konyagi.getByRole("cell").nth(6)).toHaveText("59");
+
+  // and one bottle paid by mobile money
+  await page.getByLabel("Quantity of Konyagi ndogo 200ml sold").fill("1");
+  await page.getByRole("button", { name: "Save sale of Konyagi ndogo 200ml" }).click();
+  await expect(entry.getByTestId("sale-total")).toHaveText("TZS 4,500");
+  await entry.getByRole("radio", { name: "Mobile Money" }).click();
+  await entry.getByRole("button", { name: /^Save sale/ }).click();
+  await saved.getByRole("button", { name: "Back to the sheet" }).click();
+  await expect(page.getByText(/Saved: 1 Bottle × Konyagi ndogo 200ml, TZS 4,500\. Receipt/)).toBeVisible();
+  await expect(konyagi.getByRole("cell").nth(5)).toHaveText("15");
+  await expect(konyagi.getByRole("cell").nth(6)).toHaveText("58");
 
   await page.getByRole("link", { name: "Close Day" }).first().click();
   await expect(page.getByRole("heading", { name: "Close Day" })).toBeVisible();
@@ -387,8 +398,11 @@ test("cashier closes the day with the cash count", async ({ page }) => {
   await expect(page.getByText(/is closed\. No more sales can be added/)).toBeVisible();
   await expect(page.getByText("Closing cumulative sales").locator("..")).toContainText("TZS 95,000"); // 99,500 sold - 4,500 refunded
 
+  // the old New Sale address now leads to the sheet, and a closed day's sheet takes no more sales
   await page.goto("/sale");
-  await expect(page.getByText("Start your day before making a sale")).toBeVisible();
+  await expect(page).toHaveURL(/\/sheet$/);
+  await expect(page.getByText("This day is closed. The sheet is kept as it stood at closing.")).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: "Add to Sales" })).toHaveCount(0);
 });
 
 test("owner reviews the closing and reads reports, audit history, settings and help", async ({ page }) => {
