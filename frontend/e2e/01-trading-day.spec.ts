@@ -79,7 +79,7 @@ test("owner sets up the shop and goes live", async ({ page }) => {
   await expect(safariRow).toContainText("Crate");
   await expect(safariRow).toContainText("25 bottles");
   await expect(safariRow).toContainText("500 ml");
-  await expect(safariRow).toContainText("TZS 34,000"); // the purchase price entered, as on the Excel sheet
+  await expect(safariRow).toContainText("34,000"); // the purchase price entered, as on the Excel sheet
   // a product cannot be put on sale without a price
   await page.getByRole("button", { name: "+ Add Product" }).click();
   await page.getByRole("dialog").getByLabel("Product Name").fill("mkwawa");
@@ -280,11 +280,11 @@ test("owner receives stock, refunds an item and records an expense during the da
   // is not a sale); 71 left. Sales 9,000 less the 4,500 refund; cost 3,750 a bottle; gross profit 750.
   const konyagiRow = page.getByRole("row").filter({ hasText: "Konyagi ndogo" });
   await expect(konyagiRow.getByRole("cell")).toHaveText([
-    "1", "Konyagi ndogo", "Bottle", "200 ml", "73", "71", "TZS 3,750", "TZS 4,500", "TZS 4,500", "TZS 750", "71", /Details/]);
+    "1", "Konyagi ndogo", "Bottle", "200 ml", "73", "71", "3,750", "4,500", "4,500", "750", "71", /Details/]);
   // Safari: 10 crates counted, 1 sold, 1 broken, 8 left; sold for 36,000, cost 34,000
   await expect(page.getByRole("row").filter({ hasText: "Safari Kubwa" }).getByRole("cell")).toHaveText([
-    "2", "Safari Kubwa", /^Crate/, "500 ml", "10", "8", "TZS 34,000", "TZS 36,000", "TZS 36,000", "TZS 2,000", "8", /Details/]);
-  await expect(page.getByRole("row").filter({ hasText: /^Total for all 2 products/ })).toContainText("TZS 40,500");
+    "2", "Safari Kubwa", /^Crate/, "500 ml", "10", "8", "34,000", "36,000", "36,000", "2,000", "8", /Details/]);
+  await expect(page.getByRole("row").filter({ hasText: /^Total for all 2 products/ })).toContainText("40,500");
   // sorting by a column
   await page.getByRole("button", { name: /^Total Sales/ }).click();
   await expect(page.getByRole("row").nth(1)).toContainText("Konyagi ndogo"); // smallest first
@@ -328,7 +328,7 @@ test("owner receives stock, refunds an item and records an expense during the da
   await page.getByRole("button", { name: "Save Product" }).click();
   await expect(page.getByRole("dialog")).toBeHidden();
   const safari = page.getByRole("row").filter({ hasText: "Safari Kubwa" });
-  await expect(safari).toContainText("TZS 37,000");
+  await expect(safari).toContainText("37,000");
   await expect(safari).toContainText("8");
 
   // Add a user, then switch the account off (accounts are never deleted)
@@ -428,7 +428,7 @@ test("owner reviews the closing and reads reports, audit history, settings and h
   // Sales 9,000 + 50,000 + 4,500 - 4,500 refunded; cost 14 bottles at 3,750; gross profit 6,500.
   await openScreen(page, "Products", "Products");
   await expect(page.getByRole("row").filter({ hasText: "Konyagi ndogo" }).getByRole("cell")).toHaveText([
-    "1", "Konyagi ndogo", "Bottle", "200 ml", "73", "58", "TZS 3,750", "TZS 4,500", "TZS 59,000", "TZS 6,500", "58", /Details/]);
+    "1", "Konyagi ndogo", "Bottle", "200 ml", "73", "58", "3,750", "4,500", "59,000", "6,500", "58", /Details/]);
 
   // The Daily Sheet: the Excel worksheet's columns, in the Excel order, with the Excel sums
   await openScreen(page, "Daily Sheet", "Daily Sheet");

@@ -33,13 +33,16 @@ function todayText(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
-function ProfitCell({ row }: { row: Pick<ProductRow, "profit" | "profit_status"> }) {
+/** Money in the table itself: the number only, with no "TZS" on every cell (owner's request, 13 Oct 2026). */
+const plain = (value: string | number | null | undefined) => formatTZS(value).replace("TZS ", "");
+
+function ProfitCell({ row, bare = false }: { row: Pick<ProductRow, "profit" | "profit_status">; bare?: boolean }) {
   if (row.profit === null) {
     return <span className="text-slate-600" title="Some of these sales have no reliable purchase cost, so profit is not shown rather than guessed.">Not available</span>;
   }
   return (
     <span title={row.profit_status === "PROVISIONAL" ? "Provisional: part of the cost was assumed (a delivery was recorded without a cost)." : undefined}>
-      {formatTZS(row.profit)}{row.profit_status === "PROVISIONAL" && <span className="ml-1 text-sm font-normal text-amber-800">(provisional)</span>}
+      {bare ? plain(row.profit) : formatTZS(row.profit)}{row.profit_status === "PROVISIONAL" && <span className="ml-1 text-sm font-normal text-amber-800">(provisional)</span>}
     </span>
   );
 }
@@ -339,10 +342,10 @@ export default function ProductsPage() {
                     <td className="num">{r.volume_ml ? `${r.volume_ml.toLocaleString()} ml` : "—"}</td>
                     <td className="num">{formatQty(r.total_item_stock)}</td>
                     <td className="num">{formatQty(r.closing_stock)}</td>
-                    <td className="num">{r.purchase_price === null ? <span className="text-slate-600" title="No purchase price has been entered for this product.">Not entered</span> : <>{formatTZS(r.purchase_price)}{r.purchase_price_provisional && <span className="block text-sm text-amber-800">provisional</span>}</>}</td>
-                    <td className="num">{Number(r.selling_price) > 0 ? formatTZS(r.selling_price) : <span className="font-semibold text-red-800">⚠ No price</span>}</td>
-                    <td className="num">{formatTZS(r.total_sales)}</td>
-                    <td className="num font-semibold"><ProfitCell row={r} /></td>
+                    <td className="num">{r.purchase_price === null ? <span className="text-slate-600" title="No purchase price has been entered for this product.">Not entered</span> : <>{plain(r.purchase_price)}{r.purchase_price_provisional && <span className="block text-sm text-amber-800">provisional</span>}</>}</td>
+                    <td className="num">{Number(r.selling_price) > 0 ? plain(r.selling_price) : <span className="font-semibold text-red-800">⚠ No price</span>}</td>
+                    <td className="num">{plain(r.total_sales)}</td>
+                    <td className="num font-semibold"><ProfitCell row={r} bare /></td>
                     <td className="num font-semibold">{formatQty(r.stock)}</td>
                     <td className="space-x-2 whitespace-nowrap text-right">
                       <button className="btn-secondary min-h-[2.5rem]" onClick={() => setDetailsFor(r.id)}>Details</button>
@@ -355,8 +358,8 @@ export default function ProductsPage() {
                 <tfoot>
                   <tr className="font-bold">
                     <td colSpan={8}>Total for all {data.count} product{data.count === 1 ? "" : "s"} shown by these filters</td>
-                    <td className="num">{formatTZS(data.totals.total_sales)}</td>
-                    <td className="num">{formatTZS(data.totals.profit)}</td>
+                    <td className="num">{plain(data.totals.total_sales)}</td>
+                    <td className="num">{plain(data.totals.profit)}</td>
                     <td colSpan={2} />
                   </tr>
                 </tfoot>
