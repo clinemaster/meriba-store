@@ -31,8 +31,16 @@ def line(serial, name, opening, sold, cost, price, bought=None):
             sold * (price - cost), closing * price, (bought or 0) * cost]
 
 
+_BUILT: dict[str, bytes] = {}
+
+
 def workbook(days: dict, extra_sheets=(), with_totals=True) -> bytes:
     """Builds a workbook laid out like the shop's: one sheet per day, a title, a heading row, products, then unlabelled totals."""
+    # A saved workbook carries the time it was saved, so the same content built a second later is a different file.
+    # The same content must give the same file here, as it would when the shop uploads one file twice.
+    key = repr((days, extra_sheets, with_totals))
+    if key in _BUILT:
+        return _BUILT[key]
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
     for day, rows in days.items():
@@ -52,7 +60,8 @@ def workbook(days: dict, extra_sheets=(), with_totals=True) -> bytes:
         wb.create_sheet(name).append(["notes", "not a daily sheet"])
     out = BytesIO()
     wb.save(out)
-    return out.getvalue()
+    _BUILT[key] = out.getvalue()
+    return _BUILT[key]
 
 
 def primary() -> bytes:
