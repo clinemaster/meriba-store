@@ -63,7 +63,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen">
-      <header ref={header} className="no-print sticky top-0 z-30 bg-brand-800 text-white">
+      <header ref={header} className="no-print sticky top-0 z-30 bg-gradient-to-r from-[#6342c9] to-[#7c60db] text-white">
         <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
           <div className="flex items-center gap-3">
             <button type="button" className="rounded-lg border border-white/60 px-3 py-1.5 font-semibold hover:bg-white/10 lg:hidden"

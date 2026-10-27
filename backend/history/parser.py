@@ -7,11 +7,17 @@ The opening-stock column has no proper heading; it is the column just before "Ad
 Rows under the product list that have no S/N and name are kept as "other rows" and never interpreted.
 """
 import hashlib
+import zipfile
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 import openpyxl
 from openpyxl.utils import get_column_letter
+
+from core.errors import BusinessRuleError
+
+MAX_ARCHIVE_MEMBERS = 1000
+MAX_EXPANDED_BYTES = 100 * 1024 * 1024
 
 # heading text (lower-case, single spaces) -> our field name. Price types are kept apart on purpose.
 HEADINGS = {
@@ -59,6 +65,13 @@ def file_digest(data: bytes) -> str:
 
 
 def parse_workbook(stream, filename: str) -> dict:
+    try:
+        with zipfile.ZipFile(stream) as archive:
+            members = archive.infolist()
+            if len(members) > MAX_ARCHIVE_MEMBERS or sum(member.file_size for member in members) > MAX_EXPANDED_BYTES:
+                raise BusinessRuleError("The workbook expands beyond the supported size.", code="too_large", status_code=400)
+    finally:
+        stream.seek(0)
     workbook = openpyxl.load_workbook(stream, read_only=True, data_only=True)
     sheets = []
     for name in workbook.sheetnames:

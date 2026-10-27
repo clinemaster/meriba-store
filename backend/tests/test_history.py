@@ -130,6 +130,24 @@ def test_commit_is_owner_only_and_needs_backup_and_preview_confirmation(owner, a
     assert not HistoricalRecord.objects.exists()
 
 
+def test_history_import_rejects_expanded_workbooks(owner, monkeypatch):
+    class Archive:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def infolist(self):
+            return [type("Member", (), {"file_size": 100 * 1024 * 1024 + 1})()]
+
+    monkeypatch.setattr("history.parser.zipfile.ZipFile", lambda stream: Archive())
+    response = commit(client_for(owner), primary())
+
+    assert response.status_code == 400 and response.data["code"] == "too_large"
+    assert not ImportBatch.objects.exists()
+
+
 def test_records_keep_their_source_and_original_values(imported):
     assert imported["batch"]["summary"]["records_stored"] == 24 and imported["batch"]["summary"]["verified_against_workbook"] is True
     record = HistoricalRecord.objects.get(business_date=SEP10, source_product__serial_number=1)

@@ -81,6 +81,13 @@ def test_missing_or_misordered_columns_are_refused_before_anything_is_read(owner
     assert not ReceiptImport.objects.exists()
 
 
+def test_upload_over_size_limit_is_rejected_before_import(owner):
+    response = upload(client_for(owner), b"x" * (receipt_import.MAX_BYTES + 1))
+
+    assert response.status_code == 400 and response.data["code"] == "too_large"
+    assert not ReceiptImport.objects.exists()
+
+
 def test_preview_matches_converts_and_flags_without_touching_stock(owner, shelf, make_product):
     konyagi, castle, small, big = shelf
     off = make_product("Old gin", "1000", 0, is_active=False)

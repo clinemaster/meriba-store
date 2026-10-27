@@ -1,4 +1,3 @@
-import csv
 from decimal import Decimal
 
 from django.db import transaction
@@ -11,6 +10,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from accounts.permissions import IsOwnerOrAccountant, IsSignedIn
+from core.csv_utils import SafeCSVWriter
 from core.errors import BusinessRuleError
 from core.models import AuditLog
 from core.services import audit, get_branch, money
@@ -274,7 +274,7 @@ class ProductViewSet(viewsets.ModelViewSet):
             response = HttpResponse(content_type="text/csv; charset=utf-8")
             response["Content-Disposition"] = f'attachment; filename="meriba_products_{start}_to_{end}.csv"'
             response.write("﻿")
-            writer = csv.writer(response)
+            writer = SafeCSVWriter(response)
             writer.writerow(["MERIBA product table", f"{start} to {end}"])
             writer.writerow(["S/No", "Product", "Unit", "Volume (ml)", "Closing Stock", "Purchase Price",
                              "Selling Price", "Total Sales", "Profit", "Stock on Hand", "Notes"])

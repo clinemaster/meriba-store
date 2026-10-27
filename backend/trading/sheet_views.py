@@ -1,4 +1,3 @@
-import csv
 from datetime import date
 from decimal import Decimal
 
@@ -8,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import IsOwnerOrAccountant, IsSignedIn
+from core.csv_utils import SafeCSVWriter
 from core.errors import BusinessRuleError
 from core.services import audit, get_branch
 from inventory.services import current_business_date
@@ -62,7 +62,7 @@ class DailySheetView(APIView):
             response = HttpResponse(content_type="text/csv; charset=utf-8")
             response["Content-Disposition"] = f'attachment; filename="meriba_daily_sheet_{day}.csv"'
             response.write("﻿")
-            writer = csv.writer(response)
+            writer = SafeCSVWriter(response)
             writer.writerow(["MERIBA STORE", str(day), data["note"]])
             writer.writerow([label for _, label in COLUMNS])
             for line in data["lines"]:

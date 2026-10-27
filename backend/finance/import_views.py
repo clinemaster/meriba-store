@@ -68,6 +68,8 @@ class ReceiptImportView(APIView):
         upload = request.FILES.get("file")
         if upload is None:
             raise BusinessRuleError("Choose the Excel file to upload.", code="no_file", status_code=400)
+        if upload.size > receipt_import.MAX_BYTES:
+            raise BusinessRuleError("The file is too large (the limit is 5 MB).", code="too_large", status_code=400)
         data = upload.read()
         rows = receipt_import.read_workbook(data, upload.name)
         batch = ReceiptImport.objects.create(branch=get_branch(), file_name=upload.name[:200], file_hash=file_digest(data),

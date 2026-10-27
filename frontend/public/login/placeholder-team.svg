@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 1100" fill="none">
+  <defs>
+    <linearGradient id="room" x1="450" y1="0" x2="450" y2="1100" gradientUnits="userSpaceOnUse"><stop stop-color="#b9d8d1"/><stop offset="1" stop-color="#e7c9a8"/></linearGradient>
+  </defs>
+  <path fill="url(#room)" d="M0 0h900v1100H0z"/>
+  <path d="M0 0h900v178H0z" fill="#f1e7d4" fill-opacity=".78"/>
+  <path d="M65 225h770v398H65z" fill="#d9e8dd"/>
+  <path d="M450 225v398M65 424h770" stroke="#fffaf0" stroke-width="13"/>
+  <circle cx="283" cy="706" r="67" fill="#b77a57"/>
+  <path d="M175 1100V854c0-74 48-120 108-120s108 46 108 120v246H175Z" fill="#557a70"/>
+  <circle cx="610" cy="685" r="72" fill="#774f43"/>
+  <path d="M488 1100V842c0-77 54-126 122-126s122 49 122 126v258H488Z" fill="#9c6959"/>
+  <path d="M343 904h215v26H343z" fill="#d8bd8b"/>
+  <path d="M310 944h282v23H310z" fill="#f2e7d1"/>
+  <path d="M381 828h138v76H381z" fill="#f8f4e9"/>
+  <path d="M408 850h84M408 870h58" stroke="#8a9c8b" stroke-width="7" stroke-linecap="round"/>
+</svg>

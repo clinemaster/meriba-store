@@ -1,6 +1,5 @@
 """Reports. Every figure is worked out from the stored transactions with the same rules the
 closing uses, so a report always reconciles to the underlying records. Back office only."""
-import csv
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -13,6 +12,7 @@ from rest_framework.views import APIView
 from accounts.permissions import IsOwnerOrAccountant
 from catalog.models import Product
 from catalog.stock_levels import IN_STOCK, LABELS, stock_status
+from core.csv_utils import SafeCSVWriter
 from core.errors import BusinessRuleError
 from core.services import audit, get_branch, local_today
 from finance.models import Expense, GoodsReceipt
@@ -295,7 +295,7 @@ class ReportView(APIView):
             suffix = f"_{start}_to_{end}" if dated else f"_{local_today()}"
             response["Content-Disposition"] = f'attachment; filename="meriba_{name}{suffix}.csv"'
             response.write("﻿")  # so Excel opens it with the right characters
-            writer = csv.writer(response)
+            writer = SafeCSVWriter(response)
             writer.writerow([c["label"] for c in cols])
             for row in rows:
                 writer.writerow([_plain(row.get(c["key"])) for c in cols])

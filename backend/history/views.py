@@ -1,4 +1,3 @@
-import csv
 from decimal import Decimal
 from io import BytesIO
 
@@ -12,6 +11,7 @@ from rest_framework.views import APIView
 
 from accounts.permissions import IsOwner, IsOwnerOrAccountant
 from catalog.models import Product
+from core.csv_utils import SafeCSVWriter
 from core.errors import BusinessRuleError
 from core.services import audit, local_today
 
@@ -33,6 +33,8 @@ def _plan_from_upload(request):
     data = upload.read()
     try:
         parsed = parse_workbook(BytesIO(data), upload.name)
+    except BusinessRuleError:
+        raise
     except Exception:
         raise BusinessRuleError(
             "This file could not be opened as an Excel workbook. Check that it is not damaged or password-protected.",
@@ -62,7 +64,7 @@ def _preview_report(plan, user):
     response = HttpResponse(content_type="text/csv; charset=utf-8")
     response["Content-Disposition"] = f'attachment; filename="meriba_import_preview_{local_today()}.csv"'
     response.write("\ufeff")
-    writer = csv.writer(response)
+    writer = SafeCSVWriter(response)
     writer.writerow(["MERIBA historical import PREVIEW - nothing has been saved", str(local_today())])
     writer.writerow(["Status", "NOT IMPORTED and NOT RECONCILED. These figures are as written in the file and have not been reviewed."])
     writer.writerow(["File", summary["file"]])
@@ -471,7 +473,7 @@ class ExceptionReportView(APIView):
         response = HttpResponse(content_type="text/csv; charset=utf-8")
         response["Content-Disposition"] = f'attachment; filename="meriba_historical_exceptions_{local_today()}.csv"'
         response.write("﻿")
-        writer = csv.writer(response)
+        writer = SafeCSVWriter(response)
         writer.writerow(["MERIBA historical data exception report", str(local_today())])
         writer.writerow(["Reconciliation status", state["statement"]])
         writer.writerow(["Waiting for review", f"{state['blockers']['exceptions']} exceptions, "

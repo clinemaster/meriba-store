@@ -367,3 +367,13 @@ def test_table_export_matches_the_screen(owner, cashier, shop, make_product):
     assert lines[2] == "1,Konyagi,Crate,500,18,3000,4500,9000,3000,18,"
     assert lines[3].startswith(",TOTAL,,,,,,9000,3000")
     assert AuditLog.objects.filter(action="report.exported").count() == 1
+
+
+def test_product_csv_escapes_spreadsheet_formulas(owner, make_product):
+    make_product("=1+1")
+
+    response = client_for(owner).get("/api/v1/products/table/?download=csv")
+    csv_text = response.content.decode("utf-8-sig")
+
+    assert response.status_code == 200
+    assert "'=1+1" in csv_text
