@@ -36,30 +36,44 @@ Check the file exists and is not tiny. Then copy it off the computer.
 
 ## Automatic nightly backup
 
-1. Save the password so the task can run unattended. Create the file
-   `%APPDATA%\postgresql\pgpass.conf` containing one line (your real password at the end):
+The repository includes `scripts\backup.ps1`. It reads the database name, user, host and port from
+`backend\.env`; it never reads or prints `DB_PASSWORD`. It uses PostgreSQL's password file so Windows
+Task Scheduler can run it without prompting.
+
+1. Create `%APPDATA%\postgresql\pgpass.conf` for the Windows account that will run the scheduled task.
+   Add one line, replacing the last value with the real database password:
    ```
    localhost:5432:meriba_lsms:meriba_lsms:your-database-password
    ```
-2. Save this as `C:\MeribaBackups\backup.ps1`:
+   Make sure the host, port, database and user match `backend\.env`. Do not put this password in the script.
+2. Check the setup from the project root:
    ```powershell
-   $dir = "C:\MeribaBackups"
-   $stamp = Get-Date -Format "yyyy-MM-dd_HHmm"
-   $file = Join-Path $dir "meriba_lsms_$stamp.dump"
-   & "C:\Program Files\PostgreSQL\17\bin\pg_dump.exe" -h localhost -U meriba_lsms -w -Fc -f $file meriba_lsms
-   if ($LASTEXITCODE -ne 0 -or -not (Test-Path $file) -or (Get-Item $file).Length -lt 10000) {
-       Add-Content (Join-Path $dir "backup_errors.log") "$(Get-Date -Format s) BACKUP FAILED"
-       exit 1
-   }
-   # keep the newest 30 backups
-   Get-ChildItem $dir -Filter "meriba_lsms_*.dump" | Sort-Object LastWriteTime -Descending |
-       Select-Object -Skip 30 | Remove-Item -Confirm:$false
+   powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\backup.ps1 -ValidateOnly
    ```
-3. In **Task Scheduler**, create a daily task (for example 23:30) running
-   `powershell.exe -ExecutionPolicy Bypass -File C:\MeribaBackups\backup.ps1`.
-4. The next morning, check a new file is there. Check `backup_errors.log` now and then.
-5. Arrange the off-computer copy (for example sync `C:\MeribaBackups` to a cloud folder, or copy to a USB
-   disk weekly).
+   This checks the configuration, PostgreSQL tools and password-file presence; it does not test database login.
+   The script finds PostgreSQL tools on `PATH` or under `C:\Program Files\PostgreSQL`. If they are elsewhere,
+   supply the bin folder with `-PgBin "D:\PostgreSQL\17\bin"`. The first real backup below checks authentication.
+3. Run a backup once by hand:
+   ```powershell
+   powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\backup.ps1
+   ```
+   By default, backups go to `C:\MeribaBackups`. To choose another folder, pass `-BackupDirectory`.
+   The script writes a timestamped custom-format archive, validates it with `pg_restore --list`, and only then
+   keeps it as a `.dump` file. It retains the newest 30 valid backups; use `-RetentionCount` to change this.
+   Run it as the same Windows account that owns `pgpass.conf`.
+4. In **Task Scheduler**, create a daily task (for example 23:30), with that account, whether logged in or not,
+   running `powershell.exe` with arguments:
+   ```
+   -NoProfile -ExecutionPolicy Bypass -File "C:\Projects\meriba-lsms\scripts\backup.ps1"
+   ```
+   Set **Start in** to `C:\Projects\meriba-lsms`. Configure the task to stop if it runs longer than a suitable
+   backup window, and to run as soon as possible after a missed start.
+5. Check `C:\MeribaBackups\backup.log` for completed backups and `backup_errors.log` for failures. Check the
+   newest `.dump` file exists and has a plausible size. The script's archive check is not a substitute for the
+   restore drill below.
+6. Arrange the off-computer copy (for example sync `C:\MeribaBackups` to a protected cloud folder, or copy to
+   a USB disk weekly). A local backup alone does not protect against theft, fire or disk failure. Backups contain
+   business data and password hashes; restrict access to the folder and protect offsite copies.
 
 ## Restore
 
@@ -85,6 +99,12 @@ screen). When satisfied, remove the check copy:
 > This replaces the live data with the backup. **Anything recorded after the backup was taken will be gone.**
 > Only the Owner should decide to do this. If the damaged database still opens, back it up first under a
 > different file name.
+
+Set the PostgreSQL tools path for the commands below:
+
+```powershell
+$bin = "C:\Program Files\PostgreSQL\17\bin"
+```
 
 1. Stop the backend and the website so nobody is using the system.
 2. If the old database still exists, keep it by renaming it, rather than deleting it:

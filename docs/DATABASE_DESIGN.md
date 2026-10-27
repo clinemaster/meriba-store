@@ -31,7 +31,7 @@ core_auditlog  (who, what, when, why, before, after)
 | `core_branch` | MERIBA Main Branch (more can be added later) |
 | `core_businesssettings` | Receipt text, split-payment switch, cash tolerance, opening cumulative sales, go-live time |
 | `core_auditlog` | Append-only record of sensitive actions |
-| `catalog_category`, `catalog_product` | Product list: code, name, size, unit, barcode, selling price, cost, low-stock level |
+| `catalog_category`, `catalog_product` | Product list: code, name, size, unit, selling price, cost, low-stock and critical levels |
 | `catalog_productunit` | Optional extra selling unit (e.g. Carton = 12 bottles), usable only once verified |
 | `inventory_stockbalance` | Current quantity per product |
 | `inventory_inventorymovement` | Every stock change: type, quantity, balance before/after, business date, source, user, reason |
@@ -83,7 +83,7 @@ core_auditlog  (who, what, when, why, before, after)
 | **A closing balance is carried forward at most once** | `previous_day` is one-to-one |
 | One shift per cashier per day; one open shift per cashier | `shift_one_per_cashier_per_day`, `shift_one_open_per_cashier` |
 | Cash variance = counted − expected | `shift_variance_formula` |
-| Barcodes unique when present; prices, costs, floats not negative | several check constraints |
+| Prices, costs, floats not negative | several check constraints |
 | Nothing referenced can be deleted | every foreign key is `PROTECT` |
 
 ## How the two balances work (they are separate on purpose)

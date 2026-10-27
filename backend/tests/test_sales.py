@@ -49,6 +49,16 @@ def test_at03_low_stock_status_after_sale(till, owner, shop, make_product):
     assert row["stock_on_hand"] == "7.000" and row["stock_status"] == "LOW_STOCK"
 
 
+def test_low_stock_filter_lists_only_products_at_or_below_their_reorder_point(owner, cashier, make_product):
+    low = make_product("Low", stock=3, reorder_point=Decimal("5"))
+    empty = make_product("Empty", stock=0, reorder_point=Decimal("5"))
+    make_product("Plenty", stock=50, reorder_point=Decimal("5"))
+    make_product("No threshold", stock=1)
+    rows = client_for(owner).get("/api/v1/products/?low_stock=true").data["results"]
+    assert [r["id"] for r in rows] == [empty.pk, low.pk]
+    # A cashier never gets the alert list.
+    assert len(client_for(cashier).get("/api/v1/products/?low_stock=true").data["results"]) == 4
+
 @pytest.mark.parametrize("stock,wanted", [(0, 1), (4, 6)])
 def test_at04_at05_overselling_is_blocked(till, shop, make_product, stock, wanted):
     product = make_product(stock=stock)

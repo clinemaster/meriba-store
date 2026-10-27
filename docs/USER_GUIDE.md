@@ -7,6 +7,9 @@ Amounts are in Tanzanian shillings (TZS). You can type `4500` or `4,500`.
 
 Press **Help** at the top of any screen for step-by-step instructions.
 
+Press **← Back**, above the title of any screen, to return to the screen you came from. Searches, filters and the page number you had chosen there are put back as they were.
+If there is no earlier screen (you opened the page from its address, a bookmark or a new tab), Back takes you to the screen above it, usually Home. Back never leaves the shop system and never opens a screen your account is not allowed to see.
+
 ---
 
 ## Cashier
@@ -17,6 +20,8 @@ Press **Help** at the top of any screen for step-by-step instructions.
    the last closed day. It is not the cash in your drawer.
 3. Type the **cash float** — the money you were given to make change. Type `0` if there is none.
 4. Press **Start Day**.
+
+If you typed the wrong float, tell the Owner: only the Owner can change it, and only until you close your day.
 
 ### 2. Record a sale on the Daily Sheet
 The Daily Sheet is the same sheet as in Excel: one row for each product. It is the only place sales are entered.
@@ -31,7 +36,7 @@ The Daily Sheet is the same sheet as in Excel: one row for each product. It is t
    - Paying partly cash and partly mobile money? Press **Customer is paying with more than one method**
      and type each amount.
 6. Press **Save sale**. Wait for the green "Sale saved" message and the receipt number.
-7. Press **Print Receipt** if the customer wants one, then **Back to the sheet**.
+7. Press **Share receipt** to send the receipt using the device share menu, or copy and paste it into WhatsApp or a text message. You can also press **Print Receipt**, then **Back to the sheet**.
 
 The sheet has now added the quantity to **Sales** and worked out **Closing stock**, **Total Sales** and **Stock**.
 Each entry is for one product. A customer buying three products is three entries.
@@ -44,7 +49,7 @@ Each entry is for one product. A customer buying three products is three entries
   Tell the Accountant or Owner; they can cancel it with a reason.
 
 ### 3. See your sales
-Press **Today's Sales**. Press **View** on a sale to see or print its receipt again.
+Press **Today's Sales**. Press **View** on a completed sale to see, print or share its receipt again.
 
 ### 4. Close your day
 1. Press **Close Day**.
@@ -74,7 +79,8 @@ You can do everything a cashier can, plus:
 
 ### Cumulative sales balance history — **Daily Closing**, bottom table
 Each row is one business day: opening balance, net sales, closing balance.
-Closing = opening + net sales. Each day opens with the previous closing balance. Days with no trading do not appear.
+Closing = opening + net sales. Each day opens with the previous closing balance, unless the Owner changed it; those
+days are marked **Changed by Owner**. Days with no trading do not appear.
 This is a running total of sales — it is **not** cash, profit or stock.
 
 ### Cancel a wrong sale — **Today's Sales → View → Cancel this sale**
@@ -94,6 +100,40 @@ never changed. A business day must be open to record a refund.
 1. Choose the supplier and type the invoice number, if you have them. Leave them empty if you do not; never guess.
 2. Find each product, type the quantity that actually arrived and, if known, the cost for one.
 3. Press **Save delivery**. Stock goes up immediately. A saved delivery cannot be edited; fix a mistake with a stock adjustment.
+
+### Upload a delivery from Excel — **Receive Stock → Upload Received Stock** (Owner only)
+For a long delivery list. Only the Owner sees this button; the Accountant receives deliveries by typing them as above. Press **Download the template** once; it has the five columns, in this order:
+**S/N, Details, Counted by or Unit, Volume (ml), Quantity received**. Only .xlsx files are read (save an old .xls as .xlsx).
+
+1. Choose the file and press **Upload and check**. Nothing changes yet.
+2. The top of the preview counts the rows: uploaded, matched, needs review, unmatched, duplicate, excluded and ready,
+   and what will be added to stock in each unit (bottles and crates are never added together).
+3. The table is in the same order as the Products page; each row keeps its Excel row number. For every row it shows the
+   file's details beside the **matched system product**, the unit and volume in the file and in the system, the
+   **existing stock**, the **quantity received** and the **projected stock** (existing + received, after any package
+   conversion; for example 2 crates of 12 add 24 bottles). A product is matched only when the name is certain
+   (capitals and spaces do not matter); S/N is never used to find a product.
+   In **Counted by or Unit** you may write the unit (Bottle, Crate, Carton, Box, Pack; CRET is read as Crate) or the
+   product's own pack as recorded from the Excel sheet, such as BOX(24) or Box (4). The pack is then read in the
+   product's own unit: 20 BOX(24) for Bavaria is 20 bottles, 20 Box (4) for Windhock is 20 packs. A pack written for a
+   product with no pack recorded (for example Konyagi ndogo) waits for you to choose the unit in Review.
+   Size words may be written in full or short: "Amarula ndogo" finds "Amarula ndg", "Hennesy kubwa" finds "Hennesy kb",
+   "1mage kati" finds "1mage kat". This is used only when no product has the exact name, the rest of the name must be
+   the same, and the row is marked "Different name from the file" so you can check it.
+4. **Match Status**: Matched (green), Duplicate, Needs review, Unmatched or Excluded. A row matched to a product with a
+   different name is marked “Different name from the file: check it”.
+5. Press **Review** (or **Change** on a matched row) to choose another product, correct the unit, volume or quantity,
+   or **Exclude this row**. Corrections are kept with the upload, so you can leave and come back; the file itself is
+   not changed. **Back to the file's values** undoes them.
+6. If the same product is on several rows, choose **Add together** or **Keep as separate deliveries**.
+7. **Confirm and Import Stock** appears only when every row is matched or excluded and every repeated product has a
+   choice. Choose the supplier and invoice number if you have them, then confirm. All rows go in together or not at
+   all, as ordinary deliveries; each product's current purchase price is recorded as the cost.
+8. The summary lists what was added (with the delivery numbers) and what was left out. The import, your corrections
+   and the excluded rows are kept in Audit History.
+
+The same file cannot add stock twice: uploading it again shows when it was imported. To import it a second time
+(only if it really is a second delivery) the Owner must write why; this is kept in Audit History.
 
 ### Expenses — **Expenses**
 Record money spent running the shop. If cash was taken from a cashier's drawer, choose that drawer so the closing
@@ -153,8 +193,8 @@ Work through the steps; each shows *Done* or *Not done yet*.
    fresh; you will be asked to confirm that separately.
 5. **Approve and go live**: tick the confirmation and press **Approve and start live selling**.
 
-Until you go live, nobody can start a day or sell. The opening figures cannot be changed afterwards
-except through recorded corrections.
+Until you go live, nobody can start a day or sell. After that, the opening balance can only be changed as
+described under **Change the float or the opening balance** below, or through a recorded correction.
 
 ### Settings — **Settings**
 Change the branch name, the top and bottom lines of the receipt, whether a sale may be split between payment
@@ -199,10 +239,33 @@ For formal accounting corrections only; a normal customer refund should use **Re
 go down or up, the amount and a clear reason. The original figures are kept, your name is recorded, and every later
 day's opening and closing balance is recalculated.
 
+### Change the float or the opening balance (Owner only)
+- **When you start the day**: on **Start Day**, type the float (the cash for change) as usual. To start from a different
+  **opening cumulative sales balance**, press **Change the opening balance…**, type the correct figure and the reason.
+  This only works for the person who opens the day. If someone has already opened it, use Daily Closing instead.
+- **During the day — opening balance**: **Daily Closing → Open day → Change opening balance…**. Type the correct figure and
+  the reason. Today's closing balance follows it. Once the day is closed, use **Correct…** instead.
+- **During the day — float**: **Daily Closing → Open day → Change float…** next to the cashier's open shift. Cash expected at
+  closing follows the new float. Once the shift is closed, its float can no longer be changed.
+
+Every change needs a reason of at least 10 characters. The old figure, the new one, your name and the reason are kept
+permanently and shown in **Audit History**. If an earlier closed day is corrected later, your change to the opening
+balance is kept.
+
 ---
 
 ## Not available yet
 Purchase orders, and reopening a closed day to add sales. See `REQUIREMENTS_CHECKLIST.md`.
+
+---
+
+## Choosing which columns to show
+
+Tables such as Products, Daily Sheet, Reports, Sales, Expenses, Closing, Users and Audit History have a **Columns (5 of 10)** button.
+Tick or untick columns to show or hide them straight away. Keep at least one column showing; the main column (for example the product name) and the buttons at the end of each row always stay.
+Press **Show all columns** to go back to the full table.
+Your choice is remembered on this computer and browser, separately for each person and each table.
+It only changes what you see: nothing is deleted, and **Download for Excel (CSV)** always contains every column.
 
 ---
 
@@ -237,6 +300,26 @@ Press **+ Add Product** or **Edit**. Choose the **Unit** from the list. **Volume
 leave it empty if it does not apply. For a crate, carton, box or pack you can enter how many bottles one holds.
 **Purchase Price** is what one costs from the supplier; cashiers never see it.
 Once a product has stock or sales, its unit cannot be changed.
+
+### Stock warnings: green, amber and red
+Each product can have two warning levels, set under **Stock warnings** when you add or edit it, in the product's own unit:
+
+| What you see | When |
+|---|---|
+| ✔ **Healthy** (green) | Above the low-stock level |
+| ! **Low stock** (amber) | At or below **Low stock at** |
+| ⚠ **Critical stock** (red) | At or below **Critical at** (optional; must be lower than Low stock at) |
+| ✕ **Out of stock** (red) | Nothing left |
+
+For example, with Low stock at 10 and Critical at 5: 15 bottles is green, 10 is amber, 5 is red Critical, 0 is
+red Out of stock. A level of 0 means no warning. The quantity is always shown beside the word, and the levels only
+read the stock the system already holds; they never change how stock is worked out.
+
+The colours appear on Products (Stock on Hand), Stock, Receive Stock, today's Daily Sheet (Closing stock) and the
+stock reports. The Home page shows how many products are at each level; press one to see those products. The
+**Stock level** filter on Products does the same. When a sale, count or other movement makes a product's stock
+worse, the Owner and Accountant see a note in the bottom corner, once. A delivery that puts it right raises no note.
+Screens with stock figures refresh by themselves after each change and every 30 seconds.
 
 ### Selling the same product by the crate as well as the bottle
 1. Open **Details** for the product.
@@ -274,9 +357,21 @@ date; the cell itself stays as the workbook has it.
 
 Add Purchases is still filled from Receive Stock (Owner and Accountant); it cannot be typed on the sheet.
 The sums used are listed at the bottom of the screen and in EXCEL_WORKFLOW.md.
+
+### Stock value after the day's sales
+Under the sheet (and on the Home page) the Owner and Accountant see the money value of the stock, at selling prices:
+
+    Stock value at the close of the previous day      72,772,500
+    Sales of the day                                 −    45,000
+    Stock value now                                   72,727,500
+
+A delivery, a return or count, or a selling-price change since the previous day appears on its own line, only when
+it happened. The last line is always the sheet's Stock total (Closing stock × Sales price, added up), exactly as in
+Excel. On a day when goods were delivered and the same goods sold, the value does not move: the delivery adds what
+the sales take off. Bottle and crate quantities are counted separately and are never changed by these amounts.
+
 ## S/No on the Products screen
 
 The first column of the Products table is **S/No**, the product's line number as on the Excel sheet, and the table
 is listed in that order. Products added from the workbook keep the workbook's number. A product you add yourself
-takes the next free number. Numbers of workbook products not yet added (see OPEN_DECISIONS.md, X1 to X3) are kept
-free for them, so there are gaps for now. The Daily Sheet lists products by the same number.
+takes the next free number. The Daily Sheet lists products by the same number.

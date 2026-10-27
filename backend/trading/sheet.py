@@ -19,6 +19,7 @@ from decimal import Decimal
 
 from django.db.models import Q, Sum
 
+from catalog.stock_levels import stock_status
 from core.services import get_branch
 from inventory.models import InventoryMovement
 
@@ -78,7 +79,9 @@ def live_lines(day: date) -> list[dict]:
         # price, a price changed during the day, or money was refunded; the sheet says so rather than hide it.
         actual = (recorded.get(p.pk) or ZERO) - (refunded.get(p.pk) or ZERO)
         lines.append({"number": number, "product": p.pk, "details": str(p), "unit": p.base_unit, **line,
-                      "recorded_sales_value": actual, "differs_from_recorded": actual != line["total_sales"]})
+                      "recorded_sales_value": actual, "differs_from_recorded": actual != line["total_sales"],
+                      # The colour warning on today's sheet. Read from the closing stock the sheet already shows.
+                      "stock_status": stock_status(line["closing_stock"], p.reorder_point, p.critical_point)})
     return lines
 
 
@@ -123,6 +126,61 @@ def _from_excel(day: date) -> list[dict]:
                       # an Owner-approved figure for an empty Profit cell is shown beside the cell, never in it
                       "approved_profit": r.profit_correction.approved_value if hasattr(r, "profit_correction") else None})
     return lines
+
+
+def _source_and_lines(day: date, business_day: BusinessDay | None):
+    from history.models import HistoricalRecord
+
+    if business_day and business_day.status == BusinessDay.Status.CLOSED:
+        return "CLOSED", _from_frozen(business_day)
+    if business_day:
+        return "LIVE", live_lines(day)
+    if HistoricalRecord.objects.filter(business_date=day).exists():
+        return "EXCEL", _from_excel(day)
+    return "NONE", []
+
+
+def stock_value(day: date) -> dict | None:
+    """The money value of the stock for one day the system kept (open or closed), as a statement the Owner can follow:
+
+        Previous sheet's Stock total
+      ± price changes since then                (the same bottles, valued at today's selling prices)
+      = Opening stock value                     sum of Opening stock x Sales price
+      + Deliveries                              sum of Add Purchases x Sales price
+      - Total Sales                             the sheet's Total Sales (Sales x Sales price)
+      ± Returns, counts and breakages           sum of Other x Sales price
+      = Stock value now                         the sheet's Stock total (Closing stock x Sales price)
+
+    Every figure comes from the sheet's own lines, so the statement always adds up to the workbook's Stock total.
+    Nothing is stored and no quantity is changed. None for an Excel day or a date with no sheet.
+    """
+    branch = get_branch()
+    business_day = BusinessDay.objects.filter(branch=branch, date=day).first()
+    if business_day is None:
+        return None
+    source, lines = _source_and_lines(day, business_day)
+
+    def value(field):
+        return sum(((l[field] or ZERO) * (l["sales_price"] or ZERO) for l in lines), ZERO)
+
+    opening = value("opening")
+    statement = {
+        "date": day, "source": source,
+        "previous_date": None, "previous_value": None, "price_changes": None,
+        "opening_value": opening, "deliveries": value("purchases"),
+        "sales": sum((l["total_sales"] or ZERO for l in lines), ZERO),
+        "other": value("other_movements"),
+        "closing_value": sum((l["stock"] or ZERO for l in lines), ZERO),
+    }
+    # Carried from the previous day the system kept. An Excel day before go-live is not joined on: opening stock
+    # came from the physical count, not from the workbook.
+    previous = BusinessDay.objects.filter(branch=branch, date__lt=day).order_by("-date").first()
+    if previous:
+        _, before = _source_and_lines(previous.date, previous)
+        statement["previous_date"] = previous.date
+        statement["previous_value"] = sum((l["stock"] or ZERO for l in before), ZERO)
+        statement["price_changes"] = opening - statement["previous_value"]
+    return statement
 
 
 def sheet_for(day: date) -> dict:

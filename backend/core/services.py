@@ -19,9 +19,15 @@ def money(value) -> Decimal:
 
 
 def get_branch() -> Branch:
+    # Memoised for the duration of one web request only (the context is cleared afterwards).
+    ctx = current_context()
+    if ctx and "branch" in ctx:
+        return ctx["branch"]
     branch = Branch.objects.filter(is_active=True).order_by("id").first()
     if branch is None:
         raise BusinessRuleError("No shop branch has been set up yet.", code="no_branch")
+    if ctx:
+        ctx["branch"] = branch
     return branch
 
 

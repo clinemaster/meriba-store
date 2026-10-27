@@ -2,7 +2,10 @@
 
 import { useRef, useState } from "react";
 
-import { Alert, Field, PageTitle, Spinner, StatusBadge } from "@/components/ui";
+import { Alert, Field, PageTitle, Spinner, StatusBadge, useConfirm } from "@/components/ui";
+import { ColumnPicker } from "@/components/ColumnPicker";
+import type { ColumnDef } from "@/lib/columns";
+import { useColumnVisibility } from "@/lib/useColumnVisibility";
 import { api, errorMessage, type Page } from "@/lib/api";
 import { formatDate, formatTZS, toCents, centsToApi } from "@/lib/money";
 import type { CurrentDay, PaymentMethod } from "@/lib/types";
@@ -13,7 +16,13 @@ type Expense = {
   paid_from_drawer_of: string; status: string; status_label: string; void_reason: string; recorded_by_name: string;
 };
 
+const COLUMNS: ColumnDef[] = [
+  { key: "date", label: "Date" }, { key: "category", label: "Category" }, { key: "description", label: "Description", essential: true },
+  { key: "method", label: "Paid by" }, { key: "amount", label: "Amount" }, { key: "status", label: "Status" }, { key: "by", label: "Recorded by" },
+];
+
 export default function ExpensesPage() {
+  const cols = useColumnVisibility("expenses", COLUMNS);
   const list = useLoad<Page<Expense>>("/expenses/?page_size=40");
   const categories = useLoad<string[]>("/expenses/categories/");
   const methods = useLoad<PaymentMethod[]>("/payment-methods/");
@@ -28,6 +37,7 @@ export default function ExpensesPage() {
   const [problem, setProblem] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const requestKey = useRef(crypto.randomUUID());
+  const { confirm, confirmation, asking } = useConfirm();
 
   const active = (methods.data ?? []).filter((m) => m.is_active);
   const method = active.find((m) => String(m.id) === methodId);
@@ -64,9 +74,15 @@ export default function ExpensesPage() {
     }
   }
 
-  async function cancel(expense: Expense) {
-    const reason = window.prompt(`Cancel the expense "${expense.description}" of ${formatTZS(expense.amount)}?\n\nIt stays on record as cancelled. Type the reason:`);
-    if (!reason) return;
+  function cancel(expense: Expense) {
+    confirm({
+      message: `Cancel the expense "${expense.description}" of ${formatTZS(expense.amount)}? It stays on record as cancelled.`,
+      yes: "Yes, cancel it", input: { label: "Reason for cancelling" },
+      run: (reason) => cancelNow(expense, reason),
+    });
+  }
+
+  async function cancelNow(expense: Expense, reason: string) {
     try {
       await api(`/expenses/${expense.id}/void/`, { method: "POST", body: { reason } });
       list.reload();
@@ -123,29 +139,37 @@ export default function ExpensesPage() {
       </form>
 
       <section className="card overflow-x-auto">
-        <h2 className="mb-3 text-xl font-bold">Latest expenses</h2>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-xl font-bold">Latest expenses</h2>
+          {(list.data?.results.length ?? 0) > 0 && <ColumnPicker visibility={cols} />}
+        </div>
         {list.loading && !list.data ? <Spinner /> : list.error ? <Alert kind="error">{list.error}</Alert> : (list.data?.results.length ?? 0) === 0 ? (
           <p className="text-slate-600">No expenses recorded yet.</p>
         ) : (
           <table className="table">
-            <thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Paid by</th><th className="num">Amount</th><th>Status</th><th>Recorded by</th><th /></tr></thead>
+            <thead><tr>
+              {cols.show("date") && <th>Date</th>}{cols.show("category") && <th>Category</th>}{cols.show("description") && <th>Description</th>}
+              {cols.show("method") && <th>Paid by</th>}{cols.show("amount") && <th className="num">Amount</th>}{cols.show("status") && <th>Status</th>}
+              {cols.show("by") && <th>Recorded by</th>}<th />
+            </tr></thead>
             <tbody>
               {list.data!.results.map((x) => (
                 <tr key={x.id} className={x.status === "VOIDED" ? "text-slate-500" : ""}>
-                  <td className="whitespace-nowrap">{formatDate(x.business_date)}</td>
-                  <td>{x.category}</td>
-                  <td>{x.description}{x.void_reason && <span className="block text-sm">Cancelled: {x.void_reason}</span>}</td>
-                  <td>{x.method_name}{x.paid_from_drawer_of && <span className="block text-sm text-slate-600">from {x.paid_from_drawer_of}&apos;s drawer</span>}</td>
-                  <td className={`num font-semibold ${x.status === "VOIDED" ? "line-through" : ""}`}>{formatTZS(x.amount)}</td>
-                  <td><StatusBadge status={x.status === "RECORDED" ? "COMPLETED" : "VOIDED"} label={x.status_label} /></td>
-                  <td>{x.recorded_by_name}</td>
-                  <td className="text-right">{x.status === "RECORDED" && <button className="btn-secondary min-h-[2.5rem]" onClick={() => cancel(x)}>Cancel…</button>}</td>
+                  {cols.show("date") && <td className="whitespace-nowrap">{formatDate(x.business_date)}</td>}
+                  {cols.show("category") && <td>{x.category}</td>}
+                  {cols.show("description") && <td>{x.description}{x.void_reason && <span className="block text-sm">Cancelled: {x.void_reason}</span>}</td>}
+                  {cols.show("method") && <td>{x.method_name}{x.paid_from_drawer_of && <span className="block text-sm text-slate-600">from {x.paid_from_drawer_of}&apos;s drawer</span>}</td>}
+                  {cols.show("amount") && <td className={`num font-semibold ${x.status === "VOIDED" ? "line-through" : ""}`}>{formatTZS(x.amount)}</td>}
+                  {cols.show("status") && <td><StatusBadge status={x.status === "RECORDED" ? "COMPLETED" : "VOIDED"} label={x.status_label} /></td>}
+                  {cols.show("by") && <td>{x.recorded_by_name}</td>}
+                  <td className="text-right">{x.status === "RECORDED" && <button className="btn-secondary min-h-[2.5rem]" disabled={asking} onClick={() => cancel(x)}>Cancel…</button>}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
       </section>
+      {confirmation}
     </div>
   );
 }

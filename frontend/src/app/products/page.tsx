@@ -2,30 +2,34 @@
 
 import { useEffect, useState } from "react";
 
-import { Alert, Field, Modal, PageTitle, Spinner, StatusBadge } from "@/components/ui";
+import { Alert, ConfirmToast, Field, Modal, PageTitle, Spinner, StatusBadge, StockBadge, useConfirm } from "@/components/ui";
+import { ColumnPicker } from "@/components/ColumnPicker";
+import { useBackState } from "@/lib/backNav";
+import type { ColumnDef } from "@/lib/columns";
+import { useColumnVisibility } from "@/lib/useColumnVisibility";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { formatDate, formatQty, formatTime, formatTZS } from "@/lib/money";
+import { STOCK_LEVELS, STOCK_ORDER, useLiveReload } from "@/lib/stockLevels";
 import type { Product, ProductDetails, ProductRow, ProductTable } from "@/lib/types";
 import { useLoad } from "@/lib/useLoad";
 
 const UNITS = ["Bottle", "Crate", "Carton", "Box", "Pack"];
-const EMPTY = { name: "", base_unit: "Bottle", volume_ml: "", bottles_per_unit: "", barcode: "", selling_price: "", cost_price: "", reorder_point: "0", is_active: true };
+const EMPTY = { name: "", base_unit: "Bottle", volume_ml: "", bottles_per_unit: "", selling_price: "", cost_price: "", reorder_point: "0", critical_point: "0", is_active: true };
 type Form = typeof EMPTY;
 
-/** S/No and the ten columns, in the agreed order (the Sales quantity column was removed at the owner's request, 13 Oct 2026). `key` is what the server sorts by. */
-const COLUMNS: { key: string; label: string; numeric?: boolean; help: string }[] = [
+/** S/No and the nine columns, in the agreed order (the Sales quantity column was removed at the owner's request, 13 Oct 2026). `key` is what the server sorts by. */
+const COLUMNS: (ColumnDef & { numeric?: boolean; help: string })[] = [
   { key: "serial_number", label: "S/No", help: "The product's line number, as on the Excel sheet" },
-  { key: "name", label: "Product", help: "Name of the product" },
+  { key: "name", label: "Product", essential: true, help: "Name of the product" },
   { key: "sold_by", label: "Unit", help: "The unit this product is counted and sold in" },
   { key: "volume_ml", label: "Volume (ml)", numeric: true, help: "Volume of one bottle, in millilitres" },
-  { key: "total_item_stock", label: "Total Stock", numeric: true, help: "Opening stock for the period plus stock received and other stock coming in" },
   { key: "closing_stock", label: "Closing Stock", numeric: true, help: "Opening stock + stock in − sales − breakages and other stock out" },
   { key: "purchase_price", label: "Purchase Price", numeric: true, help: "What the shop pays for one unit now, as in the Excel sheet" },
   { key: "selling_price", label: "Selling Price", numeric: true, help: "Current approved selling price of one unit" },
   { key: "total_sales", label: "Total Sales", numeric: true, help: "Value of completed sales in the period, less refunds. Worked out from the sales themselves" },
   { key: "profit", label: "Profit", numeric: true, help: "Gross profit: Total Sales less the cost of the goods sold. Expenses are not taken off here" },
-  { key: "stock", label: "Stock on Hand", numeric: true, help: "Physical stock right now, from the stock ledger" },
+  { key: "stock", label: "Stock on Hand", numeric: true, help: "Physical stock right now, from the stock ledger, with its level: healthy, low, critical or out of stock" },
 ];
 
 function todayText(): string {
@@ -52,6 +56,7 @@ function Details({ id, from, to, isOwner, onClose, onChanged }: { id: number; fr
   const [pack, setPack] = useState({ name: "", factor: "", price: "" });
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const { confirm, confirmation, asking } = useConfirm();
 
   async function run(action: () => Promise<unknown>) {
     if (busy) return;
@@ -88,7 +93,7 @@ function Details({ id, from, to, isOwner, onClose, onChanged }: { id: number; fr
                 <tr><td>− Sales</td><td className="num">{formatQty(f.sales)}</td></tr>
                 <tr><td>− Breakages and other stock out</td><td className="num">{formatQty(f.other_out)}</td></tr>
                 <tr className="font-semibold"><td>= Closing Stock</td><td className="num">{formatQty(f.closing_stock)}</td></tr>
-                <tr><td>Stock right now</td><td className="num">{formatQty(f.stock)} {unit}</td></tr>
+                <tr><td>Stock right now</td><td className="num"><StockBadge status={f.stock_status} quantity={f.stock} unit={unit} /></td></tr>
                 <tr><td>Total Sales</td><td className="num">{formatTZS(f.total_sales)}</td></tr>
                 <tr><td>Cost of goods sold</td><td className="num">{f.cost_of_goods_sold === null ? "Not available" : formatTZS(f.cost_of_goods_sold)}</td></tr>
                 <tr className="font-semibold"><td>Gross profit</td><td className="num"><ProfitCell row={f} /></td></tr>
@@ -119,15 +124,21 @@ function Details({ id, from, to, isOwner, onClose, onChanged }: { id: number; fr
                       <td>{!u.is_active ? <StatusBadge status="OFF" label="Switched off" /> : u.is_verified ? <StatusBadge status="APPROVED" label="Verified" /> : <StatusBadge status="PENDING" label="Waiting for the Owner to verify" />}</td>
                       <td className="space-x-2 whitespace-nowrap text-right">
                         {isOwner && !u.is_verified && u.is_active && (
-                          <button className="btn-primary min-h-[2.5rem]" disabled={busy}
-                            onClick={() => window.confirm(`Confirm that one ${u.name.toLowerCase()} of ${p.name} holds exactly ${formatQty(u.factor)} ${unit.toLowerCase()}(s)? Selling one ${u.name.toLowerCase()} will take that many out of stock.`)
-                              && run(() => api(`/products/${p.id}/units/${u.id}/verify/`, { method: "POST" }))}>Verify</button>
+                          <button className="btn-primary min-h-[2.5rem]" disabled={busy || asking}
+                            onClick={() => confirm({
+                              message: `Confirm that one ${u.name.toLowerCase()} of ${p.name} holds exactly ${formatQty(u.factor)} ${unit.toLowerCase()}(s)? Selling one ${u.name.toLowerCase()} will take that many out of stock.`,
+                              yes: "Yes, verify", run: () => run(() => api(`/products/${p.id}/units/${u.id}/verify/`, { method: "POST" })),
+                            })}>Verify</button>
                         )}
-                        <button className="btn-secondary min-h-[2.5rem]" disabled={busy}
-                          onClick={() => {
-                            const next = window.prompt(`How many ${unit.toLowerCase()}s are in one ${u.name.toLowerCase()}?\n\nPast sales keep the figure they were sold with. The new figure must be verified by the Owner before it can be sold.`, String(Number(u.factor)));
-                            if (next && Number(next) >= 1 && Number(next) !== Number(u.factor)) run(() => api(`/products/${p.id}/units/${u.id}/`, { method: "PATCH", body: { factor: next } }));
-                          }}>Change</button>
+                        <button className="btn-secondary min-h-[2.5rem]" disabled={busy || asking}
+                          onClick={() => confirm({
+                            message: `Change how many ${unit.toLowerCase()}s are in one ${u.name.toLowerCase()}? Past sales keep the figure they were sold with. The new figure must be verified by the Owner before it can be sold.`,
+                            yes: "Yes, change it", input: { label: `${unit}s in one ${u.name.toLowerCase()}`, initial: String(Number(u.factor)), numeric: true },
+                            run: (next) => {
+                              if (Number(next) < 1) return setProblem(`One ${u.name.toLowerCase()} must hold at least 1 ${unit.toLowerCase()}.`);
+                              if (Number(next) !== Number(u.factor)) run(() => api(`/products/${p.id}/units/${u.id}/`, { method: "PATCH", body: { factor: next } }));
+                            },
+                          })}>Change</button>
                       </td>
                     </tr>
                   ))}
@@ -138,18 +149,22 @@ function Details({ id, from, to, isOwner, onClose, onChanged }: { id: number; fr
               <form className="mt-3 grid gap-2 sm:grid-cols-4" noValidate onSubmit={(e) => {
                 e.preventDefault();
                 if (!pack.name || Number(pack.factor) < 1 || pack.price.trim() === "") return setProblem("Choose the package, how many it holds, and its selling price.");
-                if (!window.confirm(`Add: one ${pack.name.toLowerCase()} = ${pack.factor} ${unit.toLowerCase()}(s), selling at ${formatTZS(pack.price)}? The Owner must verify it before it can be sold.`)) return;
-                run(async () => { await api(`/products/${p.id}/units/`, { method: "POST", body: { name: pack.name, factor: pack.factor, selling_price: pack.price.replace(/,/g, "") } }); setPack({ name: "", factor: "", price: "" }); });
+                confirm({
+                  message: `Add: one ${pack.name.toLowerCase()} = ${pack.factor} ${unit.toLowerCase()}(s), selling at ${formatTZS(pack.price)}? The Owner must verify it before it can be sold.`,
+                  yes: "Yes, add it",
+                  run: () => run(async () => { await api(`/products/${p.id}/units/`, { method: "POST", body: { name: pack.name, factor: pack.factor, selling_price: pack.price.replace(/,/g, "") } }); setPack({ name: "", factor: "", price: "" }); }),
+                });
               }}>
                 <select aria-label="Package to add" className="input" value={pack.name} onChange={(e) => setPack({ ...pack, name: e.target.value })}>
                   <option value="">Also sell by…</option>{others.map((u) => <option key={u}>{u}</option>)}
                 </select>
                 <input aria-label={`How many ${unit.toLowerCase()}s it holds`} className="input" inputMode="numeric" placeholder={`Holds how many ${unit.toLowerCase()}s?`} value={pack.factor} onChange={(e) => setPack({ ...pack, factor: e.target.value.replace(/\D/g, "") })} />
                 <input aria-label="Selling price of the package" className="input" inputMode="numeric" placeholder="Selling price (TZS)" value={pack.price} onChange={(e) => setPack({ ...pack, price: e.target.value })} />
-                <button className="btn-secondary" disabled={busy}>Add package</button>
+                <button className="btn-secondary" disabled={busy || asking}>Add package</button>
               </form>
             )}
             {problem && <div className="mt-2"><Alert kind="error">{problem}</Alert></div>}
+            {confirmation}
           </section>
 
           <section>
@@ -194,24 +209,34 @@ function Details({ id, from, to, isOwner, onClose, onChanged }: { id: number; fr
 
 export default function ProductsPage() {
   const { user } = useAuth();
+  const cols = useColumnVisibility("products", COLUMNS);
   const isOwner = user?.role === "OWNER";
-  const [search, setSearch] = useState("");
-  const [query, setQuery] = useState("");
-  const [soldBy, setSoldBy] = useState("");
-  const [show, setShow] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [ordering, setOrdering] = useState("serial_number");
-  const [page, setPage] = useState(1);
+  const [search, setSearch] = useBackState("search", "");
+  const [query, setQuery] = useBackState("query", "");
+  const [soldBy, setSoldBy] = useBackState("soldBy", "");
+  const [show, setShow] = useBackState("show", "");
+  const [stockLevel, setStockLevel] = useBackState("stock", "");
+  const [from, setFrom] = useBackState("from", "");
+  const [to, setTo] = useBackState("to", "");
+  const [ordering, setOrdering] = useBackState("ordering", "serial_number");
+  const [page, setPage] = useBackState("page", 1);
   const badDates = !!from && !!to && from > to;
-  const params = `page=${page}&page_size=25&ordering=${ordering}&search=${encodeURIComponent(query)}${soldBy ? `&sold_by=${soldBy}` : ""}${show ? `&active=${show}` : ""}${from ? `&date_from=${from}` : ""}${to ? `&date_to=${to}` : ""}`;
+  const params = `page=${page}&page_size=25&ordering=${ordering}&search=${encodeURIComponent(query)}${soldBy ? `&sold_by=${soldBy}` : ""}${show ? `&active=${show}` : ""}${stockLevel ? `&stock_status=${stockLevel}` : ""}${from ? `&date_from=${from}` : ""}${to ? `&date_to=${to}` : ""}`;
   const list = useLoad<ProductTable>(badDates ? null : `/products/table/?${params}`);
+  useLiveReload(list.reload);
+
+  // Arriving from a dashboard tile or a stock warning (/products?stock=LOW_STOCK) shows just those products.
+  useEffect(() => {
+    const asked = new URLSearchParams(window.location.search).get("stock");
+    if (asked && (asked === "ATTENTION" || asked in STOCK_LEVELS)) { setStockLevel(asked); setShow(""); setPage(1); }
+  }, []);
   const [detailsFor, setDetailsFor] = useState<number | null>(null);
   const [editing, setEditing] = useState<Product | "new" | null>(null);
   const [form, setForm] = useState<Form>(EMPTY);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirmations, setConfirmations] = useState<string[]>([]);
 
   useEffect(() => {
     const timer = setTimeout(() => { setQuery(search.trim()); setPage(1); }, 250);
@@ -235,9 +260,9 @@ export default function ProductsPage() {
       const product = await api<Product>(`/products/${target}/`);
       setForm({
         name: product.name, base_unit: product.base_unit, volume_ml: product.volume_ml ? String(product.volume_ml) : "",
-        bottles_per_unit: product.bottles_per_unit ? String(product.bottles_per_unit) : "", barcode: product.barcode,
+        bottles_per_unit: product.bottles_per_unit ? String(product.bottles_per_unit) : "",
         selling_price: String(Number(product.selling_price)), cost_price: product.cost_price ? String(Number(product.cost_price)) : "",
-        reorder_point: String(Number(product.reorder_point ?? 0)), is_active: product.is_active,
+        reorder_point: String(Number(product.reorder_point ?? 0)), critical_point: String(Number(product.critical_point ?? 0)), is_active: product.is_active,
       });
       setEditing(product);
     } catch (err) {
@@ -245,25 +270,40 @@ export default function ProductsPage() {
     }
   }
 
-  async function save(e: React.FormEvent) {
+  function save(e: React.FormEvent) {
     e.preventDefault();
-    if (busy || !editing) return;
+    if (busy || !editing || confirmations.length > 0) return;
+    const questions: string[] = [];
     if (editing !== "new") {
-      if (Number(editing.selling_price) !== Number(form.selling_price || 0)
-        && !window.confirm(`Change the selling price from ${formatTZS(editing.selling_price)} to ${formatTZS(form.selling_price || 0)}? New sales use the new price straight away. Past sales and receipts are not changed.`)) return;
-      if ((editing.bottles_per_unit ?? "") !== (form.bottles_per_unit === "" ? "" : Number(form.bottles_per_unit))
-        && !window.confirm(`Change the number of bottles in one ${form.base_unit.toLowerCase()} from ${editing.bottles_per_unit ?? "not recorded"} to ${form.bottles_per_unit || "not recorded"}? Stock quantities, which are counted in ${form.base_unit.toLowerCase()}s, do not change.`)) return;
+      if (Number(editing.selling_price) !== Number(form.selling_price || 0)) {
+        questions.push(`Change the selling price from ${formatTZS(editing.selling_price)} to ${formatTZS(form.selling_price || 0)}? New sales use the new price straight away. Past sales and receipts are not changed.`);
+      }
+      if ((editing.bottles_per_unit ?? "") !== (form.bottles_per_unit === "" ? "" : Number(form.bottles_per_unit))) {
+        questions.push(`Change the number of bottles in one ${form.base_unit.toLowerCase()} from ${editing.bottles_per_unit ?? "not recorded"} to ${form.bottles_per_unit || "not recorded"}? Stock quantities, which are counted in ${form.base_unit.toLowerCase()}s, do not change.`);
+      }
     }
+    if (questions.length > 0) setConfirmations(questions);
+    else persist();
+  }
+
+  function answerYes() {
+    const rest = confirmations.slice(1);
+    setConfirmations(rest);
+    if (rest.length === 0) persist();
+  }
+
+  async function persist() {
+    if (busy || !editing) return;
     setBusy(true);
     setErrors({});
     setProblem(null);
     try {
       const body = {
-        name: form.name, base_unit: form.base_unit, barcode: form.barcode, is_active: form.is_active,
+        name: form.name, base_unit: form.base_unit, is_active: form.is_active,
         volume_ml: form.volume_ml === "" ? null : Number(form.volume_ml),
         bottles_per_unit: form.base_unit === "Bottle" || form.bottles_per_unit === "" ? null : Number(form.bottles_per_unit),
         selling_price: form.selling_price.replace(/,/g, "") || "0", cost_price: form.cost_price === "" ? null : form.cost_price.replace(/,/g, ""),
-        reorder_point: form.reorder_point || "0",
+        reorder_point: form.reorder_point || "0", critical_point: form.critical_point || "0",
       };
       if (editing === "new") await api("/products/", { method: "POST", body });
       else await api(`/products/${editing.id}/`, { method: "PATCH", body });
@@ -290,8 +330,8 @@ export default function ProductsPage() {
       <PageTitle title="Products" help="Every product with its stock and sales for the day or dates you choose. Quantities are in each product's own unit. Products are never deleted; switch one off if you stop selling it."
         action={<button className="btn-primary" onClick={() => open("new")}>+ Add Product</button>} />
 
-      <div className="card mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
-        <div className="lg:col-span-2"><Field label="Search">{(p) => <input {...p} className="input" placeholder="Name, code or barcode" value={search} onChange={(e) => setSearch(e.target.value)} />}</Field></div>
+      <div className="card mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-7">
+        <div className="lg:col-span-2"><Field label="Search">{(p) => <input {...p} className="input" placeholder="Name or code" value={search} onChange={(e) => setSearch(e.target.value)} />}</Field></div>
         <Field label="Unit">{(p) => (
           <select {...p} className="input" value={soldBy} onChange={(e) => { setSoldBy(e.target.value); setPage(1); }}>
             <option value="">All units</option>{(data?.sold_by_options ?? UNITS).map((u) => <option key={u}>{u}</option>)}
@@ -299,6 +339,11 @@ export default function ProductsPage() {
         <Field label="Show">{(p) => (
           <select {...p} className="input" value={show} onChange={(e) => { setShow(e.target.value); setPage(1); }}>
             <option value="">All products</option><option value="true">On sale</option><option value="false">Switched off</option>
+          </select>)}</Field>
+        <Field label="Stock level">{(p) => (
+          <select {...p} className="input" value={stockLevel} onChange={(e) => { setStockLevel(e.target.value); setPage(1); }}>
+            <option value="">All levels</option><option value="ATTENTION">Needs attention (low, critical, out)</option>
+            {STOCK_ORDER.map((s) => <option key={s} value={s}>{STOCK_LEVELS[s].label}</option>)}
           </select>)}</Field>
         <Field label="From" hint="Empty = the current business day">{(p) => <input {...p} type="date" className="input" max={todayText()} value={from} onChange={(e) => { setFrom(e.target.value); setPage(1); }} />}</Field>
         <Field label="To">{(p) => <input {...p} type="date" className="input" max={todayText()} value={to} onChange={(e) => { setTo(e.target.value); setPage(1); }} />}</Field>
@@ -311,16 +356,21 @@ export default function ProductsPage() {
           <p className="text-slate-700" aria-live="polite">
             {data ? <>Stock and sales for <strong>{periodText}</strong> · {data.count} product{data.count === 1 ? "" : "s"}</> : " "}
           </p>
-          {data && data.count > 0 && <a className="btn-secondary" href={`/api/v1/products/table/?${params}&download=csv`}>Download for Excel (CSV)</a>}
+          {data && data.count > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <ColumnPicker visibility={cols} />
+              <a className="btn-secondary" href={`/api/v1/products/table/?${params}&download=csv`}>Download for Excel (CSV)</a>
+            </div>
+          )}
         </div>
         <div className="overflow-x-auto">
           {list.loading && !data ? <Spinner /> : list.error ? <Alert kind="error">{list.error}</Alert> : rows.length === 0 ? (
-            <p className="p-4 text-slate-600">{query || soldBy || show ? "No product matches your search and filters." : "No products yet. Press “Add Product” to create the first one."}</p>
+            <p className="p-4 text-slate-600">{query || soldBy || show || stockLevel ? "No product matches your search and filters." : "No products yet. Press “Add Product” to create the first one."}</p>
           ) : (
-            <table className="table min-w-[1150px]">
+            <table className="table min-w-[960px]">
               <thead>
                 <tr>
-                  {COLUMNS.map((c) => {
+                  {COLUMNS.filter((c) => cols.show(c.key)).map((c) => {
                     const active = ordering === c.key || ordering === `-${c.key}`;
                     return (
                       <th key={c.key} className={c.numeric ? "num" : ""} aria-sort={!active ? "none" : ordering.startsWith("-") ? "descending" : "ascending"}>
@@ -334,34 +384,52 @@ export default function ProductsPage() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
+                {rows.map((r) => {
+                  const cell: Record<string, React.ReactNode> = {
+                    serial_number: <td key="serial_number">{r.serial_number ?? ""}</td>,
+                    name: <td key="name"><span className="font-semibold">{r.name}</span>{!r.is_active && <span className="block text-sm">Switched off</span>}</td>,
+                    sold_by: <td key="sold_by">{r.sold_by}{r.sold_by !== "Bottle" && r.bottles_per_unit ? <span className="block text-sm text-slate-600">{r.bottles_per_unit} bottles</span> : null}</td>,
+                    volume_ml: <td key="volume_ml" className="num">{r.volume_ml ? `${r.volume_ml.toLocaleString()} ml` : "—"}</td>,
+                    closing_stock: <td key="closing_stock" className="num">{formatQty(r.closing_stock)}</td>,
+                    purchase_price: <td key="purchase_price" className="num">{r.purchase_price === null ? <span className="text-slate-600" title="No purchase price has been entered for this product.">Not entered</span> : <>{plain(r.purchase_price)}{r.purchase_price_provisional && <span className="block text-sm text-amber-800">provisional</span>}</>}</td>,
+                    selling_price: <td key="selling_price" className="num">{Number(r.selling_price) > 0 ? plain(r.selling_price) : <span className="font-semibold text-red-800">⚠ No price</span>}</td>,
+                    total_sales: <td key="total_sales" className="num">{plain(r.total_sales)}</td>,
+                    profit: <td key="profit" className="num font-semibold"><ProfitCell row={r} bare /></td>,
+                    stock: <td key="stock" className="num font-semibold"><StockBadge status={r.stock_status} quantity={r.stock} /></td>,
+                  };
+                  return (
                   <tr key={r.id} className={r.is_active ? "" : "text-slate-500"}>
-                    <td>{r.serial_number ?? ""}</td>
-                    <td><span className="font-semibold">{r.name}</span>{!r.is_active && <span className="block text-sm">Switched off</span>}</td>
-                    <td>{r.sold_by}{r.sold_by !== "Bottle" && r.bottles_per_unit ? <span className="block text-sm text-slate-600">{r.bottles_per_unit} bottles</span> : null}</td>
-                    <td className="num">{r.volume_ml ? `${r.volume_ml.toLocaleString()} ml` : "—"}</td>
-                    <td className="num">{formatQty(r.total_item_stock)}</td>
-                    <td className="num">{formatQty(r.closing_stock)}</td>
-                    <td className="num">{r.purchase_price === null ? <span className="text-slate-600" title="No purchase price has been entered for this product.">Not entered</span> : <>{plain(r.purchase_price)}{r.purchase_price_provisional && <span className="block text-sm text-amber-800">provisional</span>}</>}</td>
-                    <td className="num">{Number(r.selling_price) > 0 ? plain(r.selling_price) : <span className="font-semibold text-red-800">⚠ No price</span>}</td>
-                    <td className="num">{plain(r.total_sales)}</td>
-                    <td className="num font-semibold"><ProfitCell row={r} bare /></td>
-                    <td className="num font-semibold">{formatQty(r.stock)}</td>
-                    <td className="space-x-2 whitespace-nowrap text-right">
-                      <button className="btn-secondary min-h-[2.5rem]" onClick={() => setDetailsFor(r.id)}>Details</button>
-                      <button className="btn-secondary min-h-[2.5rem]" onClick={() => open(r.id)}>Edit</button>
+                    {COLUMNS.filter((c) => cols.show(c.key)).map((c) => cell[c.key])}
+                    <td className="text-right">
+                      {/* Stacked beside the sidebar so the table fits; side by side on a wide screen. */}
+                      <div className="flex flex-col items-stretch gap-1 2xl:flex-row 2xl:justify-end">
+                        <button className="btn-secondary min-h-[2.25rem] whitespace-nowrap" onClick={() => setDetailsFor(r.id)}>Details</button>
+                        <button className="btn-secondary min-h-[2.25rem] whitespace-nowrap" onClick={() => open(r.id)}>Edit</button>
+                      </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
               {data && (
                 <tfoot>
-                  <tr className="font-bold">
-                    <td colSpan={8}>Total for all {data.count} product{data.count === 1 ? "" : "s"} shown by these filters</td>
-                    <td className="num">{plain(data.totals.total_sales)}</td>
-                    <td className="num">{plain(data.totals.profit)}</td>
-                    <td colSpan={2} />
-                  </tr>
+                  {(() => {
+                    const shown = COLUMNS.filter((c) => cols.show(c.key));
+                    const isTotal = (k: string) => k === "total_sales" || k === "profit";
+                    const lead = shown.findIndex((c) => isTotal(c.key));
+                    const label = `Total for all ${data.count} product${data.count === 1 ? "" : "s"} shown by these filters`;
+                    if (lead === -1) return <tr className="font-bold"><td colSpan={shown.length + 1}>{label}</td></tr>;
+                    return (
+                      <>
+                        {lead === 0 && <tr className="font-bold"><td colSpan={shown.length + 1}>{label}</td></tr>}
+                        <tr className="font-bold">
+                          {lead > 0 && <td colSpan={lead}>{label}</td>}
+                          {shown.slice(lead).map((c) => <td key={c.key} className="num">{isTotal(c.key) ? plain(data.totals[c.key as "total_sales" | "profit"]) : ""}</td>)}
+                          <td />
+                        </tr>
+                      </>
+                    );
+                  })()}
                 </tfoot>
               )}
             </table>
@@ -404,9 +472,13 @@ export default function ProductsPage() {
             <div className="grid gap-3 sm:grid-cols-3">
               <Field label="Selling Price (TZS)" hint={`Price of one ${form.base_unit.toLowerCase()}`} error={errors.selling_price}>{(p) => <input {...p} className="input" inputMode="numeric" value={form.selling_price} onChange={set("selling_price")} />}</Field>
               <Field label="Purchase Price (TZS)" hint="What one costs from the supplier. Optional. Hidden from cashiers." error={errors.cost_price}>{(p) => <input {...p} className="input" inputMode="numeric" value={form.cost_price} onChange={set("cost_price")} />}</Field>
-              <Field label="Low-stock warning at" hint="0 = no warning" error={errors.reorder_point}>{(p) => <input {...p} className="input" inputMode="numeric" value={form.reorder_point} onChange={set("reorder_point")} />}</Field>
             </div>
-            <Field label="Barcode" hint="Optional. Scan or type it." error={errors.barcode}>{(p) => <input {...p} className="input" value={form.barcode} onChange={set("barcode")} />}</Field>
+            <fieldset className="grid gap-3 rounded-lg border border-slate-200 p-3 sm:grid-cols-2">
+              <legend className="px-1 font-semibold">Stock warnings, in {form.base_unit.toLowerCase()}s</legend>
+              <Field label="Low stock at" hint="Shown amber at or below this. 0 = no warning." error={errors.reorder_point}>{(p) => <input {...p} className="input" inputMode="numeric" value={form.reorder_point} onChange={set("reorder_point")} />}</Field>
+              <Field label="Critical at" hint="Shown red at or below this. Must be lower than Low stock. 0 = none." error={errors.critical_point}>{(p) => <input {...p} className="input" inputMode="numeric" value={form.critical_point} onChange={set("critical_point")} />}</Field>
+              <p className="text-sm text-slate-600 sm:col-span-2">At 0 the product always shows red, Out of stock.</p>
+            </fieldset>
             <label className="flex items-center gap-3">
               <input type="checkbox" className="h-6 w-6" checked={form.is_active} onChange={(e) => setForm((f) => ({ ...f, is_active: e.target.checked }))} />
               <span>On sale (untick to stop selling this product; its history is kept)</span>
@@ -417,6 +489,9 @@ export default function ProductsPage() {
               <button type="button" className="btn-secondary" onClick={() => setEditing(null)}>Cancel</button>
             </div>
           </form>
+          {confirmations.length > 0 && (
+            <ConfirmToast message={confirmations[0]} yes="Yes, save" busy={busy} onNo={() => setConfirmations([])} onYes={answerYes} />
+          )}
         </Modal>
       )}
     </div>

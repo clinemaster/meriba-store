@@ -5,11 +5,14 @@ export type User = {
   is_active: boolean; must_change_password: boolean; last_login: string | null;
 };
 
+/** A product's stock level, worked out on the server from its live stock and its own warning levels. */
+export type StockStatus = "IN_STOCK" | "LOW_STOCK" | "CRITICAL" | "OUT_OF_STOCK";
+
 export type Product = {
   id: number; sku: string; name: string; category: number | null; category_name: string; brand: string;
-  package_size: string; pack_description: string; base_unit: string; barcode: string; selling_price: string;
-  is_active: boolean; stock_on_hand: string; stock_status: "IN_STOCK" | "LOW_STOCK" | "OUT_OF_STOCK";
-  cost_price?: string | null; reorder_point?: string; target_stock?: string;
+  package_size: string; pack_description: string; base_unit: string; selling_price: string;
+  is_active: boolean; stock_on_hand: string; stock_status: StockStatus;
+  cost_price?: string | null; reorder_point?: string; critical_point?: string; target_stock?: string;
   volume_ml: number | null; bottles_per_unit: number | null;
   average_cost?: string | null; cost_provisional?: boolean;
   units: { id: number; name: string; factor: string; selling_price: string; is_verified: boolean; is_active: boolean }[];
@@ -21,6 +24,7 @@ export type ProductRow = {
   opening_stock: string; incoming: string; other_out: string; total_item_stock: string; sales: string; closing_stock: string;
   purchase_price: string | null; purchase_price_provisional: boolean; purchase_price_entered: string | null; selling_price: string;
   total_sales: string; cost_of_goods_sold: string | null; profit: string | null; profit_status: "OK" | "PROVISIONAL" | "UNAVAILABLE"; stock: string;
+  stock_status: StockStatus;
 };
 
 export type ProductTable = {
@@ -52,6 +56,8 @@ export type Day = {
   gross_sales: string; discounts: string; voids: string; refunds: string; net_sales: string;
   closing_cumulative_sales: string | null; closed_at: string | null; adjustments: string;
   corrections: { id: number; amount: string; reason: string; created_at: string; authorised_by: string; closing_before: string; closing_after: string }[];
+  /** Owner changes to this day's opening balance, newest first. */
+  opening_changes: { id: number; opening_before: string; opening_after: string; reason: string; created_at: string; authorised_by: string }[];
 };
 
 export type PaymentTotal = { method: number; name: string; is_cash: boolean; amount: string; count: number; is_verified?: boolean; code?: string };
@@ -98,4 +104,10 @@ export type OpeningCount = {
   status_label: string; created_at: string; prepared_by_name: string; reviewed_by_name: string; reviewed_at: string | null; review_note: string;
   lines: { product: number; product_name: string; unit: string; counted_quantity: string; reference_quantity: string | null;
            reference_source: string; variance: string | null; approved_quantity: string | null; movement: number | null }[];
+};
+export type StockLevelCounts = { counts: Record<StockStatus, number>; labels: Record<StockStatus, string>; total: number };
+
+export type StockAlert = {
+  id: number; created_at: string; product: number; product_name: string; unit: string;
+  status_before: StockStatus; status: StockStatus; status_label: string; quantity: string; current_status: StockStatus;
 };

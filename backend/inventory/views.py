@@ -1,15 +1,17 @@
+from django.db.models import Prefetch
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, serializers
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.permissions import IsOwner, IsOwnerOrAccountant
+from catalog import stock_levels
 from catalog.models import Product
 from core.errors import BusinessRuleError
 from core.services import get_branch
 
 from . import services
-from .models import InventoryMovement, OpeningCount, StockAdjustment
+from .models import InventoryMovement, OpeningCount, OpeningCountLine, StockAdjustment, StockAlert, StockBalance
 
 
 class MovementSerializer(serializers.ModelSerializer):
@@ -43,6 +45,37 @@ class MovementListView(generics.ListAPIView):
         if params.get("date_to"):
             qs = qs.filter(business_date__lte=params["date_to"])
         return qs
+
+
+class StockAlertView(APIView):
+    """Products whose stock level got worse, newest first. Back office only.
+
+    `?after=<id>` returns only alerts newer than the last one the screen has shown, so each is announced once.
+    `latest_id` lets a screen that has shown nothing yet start from now instead of announcing the past.
+    """
+
+    permission_classes = [IsOwnerOrAccountant]
+
+    @extend_schema(responses={200: dict})
+    def get(self, request):
+        branch = get_branch()
+        qs = StockAlert.objects.filter(branch=branch)
+        latest = qs.values_list("id", flat=True).first() or 0
+        try:
+            after = int(request.query_params.get("after", ""))
+        except ValueError:
+            after = None
+        if after is not None:
+            qs = qs.filter(id__gt=after)
+        alerts = list(qs.select_related("product")[:20])
+        now = dict(StockBalance.objects.filter(branch=branch, product__in=[a.product_id for a in alerts]).values_list("product", "quantity"))
+        return Response({"latest_id": latest, "results": [{
+            "id": a.id, "created_at": a.created_at, "product": a.product_id, "product_name": str(a.product), "unit": a.product.base_unit,
+            "status_before": a.status_before, "status": a.status_after, "status_label": stock_levels.LABELS[a.status_after],
+            "quantity": a.quantity,
+            # Where it stands now: a delivery since the alert may already have put it right.
+            "current_status": stock_levels.stock_status(now.get(a.product_id), a.product.reorder_point, a.product.critical_point),
+        } for a in alerts]})
 
 
 class CountLineSerializer(serializers.Serializer):
@@ -104,6 +137,8 @@ class OpeningCountSerializer(serializers.ModelSerializer):
                   "reviewed_by_name", "reviewed_at", "review_note", "lines"]
 
     def get_lines(self, obj) -> list:
+        prefetched = getattr(obj, "_prefetched_objects_cache", {}).get("lines")
+        lines = prefetched if prefetched is not None else obj.lines.select_related("product")
         return [
             {"product": line.product_id, "product_name": str(line.product), "unit": line.unit,
              "counted_quantity": str(line.counted_quantity),
@@ -112,7 +147,7 @@ class OpeningCountSerializer(serializers.ModelSerializer):
              "variance": None if line.variance is None else str(line.variance),
              "approved_quantity": None if line.approved_quantity is None else str(line.approved_quantity),
              "movement": line.movement_id}
-            for line in obj.lines.select_related("product")
+            for line in lines
         ]
 
 
@@ -135,7 +170,9 @@ class OpeningCountView(generics.ListAPIView):
     pagination_class = None
 
     def get_queryset(self):
-        return OpeningCount.objects.filter(branch=get_branch()).select_related("prepared_by", "reviewed_by")
+        return (OpeningCount.objects.filter(branch=get_branch())
+                .select_related("prepared_by", "reviewed_by")
+                .prefetch_related(Prefetch("lines", queryset=OpeningCountLine.objects.select_related("product"))))
 
     def list(self, request, *args, **kwargs):
         state = services.opening_stock_state(get_branch())

@@ -2,7 +2,10 @@
 
 import { useState } from "react";
 
-import { Alert, Field, Modal, PageTitle, Spinner, StatusBadge } from "@/components/ui";
+import { Alert, Field, Modal, PageTitle, Spinner, StatusBadge, useConfirm } from "@/components/ui";
+import { ColumnPicker } from "@/components/ColumnPicker";
+import type { ColumnDef } from "@/lib/columns";
+import { useColumnVisibility } from "@/lib/useColumnVisibility";
 import { api, ApiError, errorMessage, type Page } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { formatDate } from "@/lib/money";
@@ -15,13 +18,20 @@ const ROLES: { value: Role; label: string; help: string }[] = [
   { value: "OWNER", label: "Owner", help: "Can do everything, including managing users and settings." },
 ];
 
+const COLUMNS: ColumnDef[] = [
+  { key: "name", label: "Name", essential: true }, { key: "username", label: "Username" }, { key: "role", label: "Role" },
+  { key: "status", label: "Status" }, { key: "login", label: "Last signed in" },
+];
+
 export default function UsersPage() {
+  const cols = useColumnVisibility("users", COLUMNS);
   const { user: me } = useAuth();
   const list = useLoad<Page<User>>("/users/?page_size=200");
   const [mode, setMode] = useState<{ kind: "new" } | { kind: "edit" | "password"; user: User } | null>(null);
   const [form, setForm] = useState({ username: "", full_name: "", role: "CASHIER" as Role, password: "", is_active: true });
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const { confirm, confirmation, asking } = useConfirm();
 
   function open(next: typeof mode) {
     setMode(next);
@@ -31,10 +41,23 @@ export default function UsersPage() {
       : { username: "", full_name: "", role: "CASHIER", password: "", is_active: true });
   }
 
-  async function save(e: React.FormEvent) {
+  function save(e: React.FormEvent) {
     e.preventDefault();
     if (busy || !mode) return;
-    if (mode.kind === "edit" && mode.user.role !== form.role && !window.confirm(`Change ${mode.user.display_name}'s role to ${form.role.toLowerCase()}? This changes what they can see and do.`)) return;
+    const changes: string[] = [];
+    if (mode.kind === "edit") {
+      const name = mode.user.display_name;
+      if (mode.user.role !== form.role) changes.push(`Change ${name}'s role to ${form.role.toLowerCase()}? This changes what they can see and do.`);
+      if (mode.user.is_active && !form.is_active) changes.push(`Switch off ${name}'s account? They will no longer be able to sign in.`);
+      if (!mode.user.is_active && form.is_active) changes.push(`Switch ${name}'s account back on? They will be able to sign in again.`);
+    }
+    if (mode.kind === "password") changes.push(`Give ${mode.user.display_name} a new password? Their old password stops working at once.`);
+    if (changes.length === 0) return persist();
+    confirm({ message: changes.join(" "), yes: "Yes, save", run: persist });
+  }
+
+  async function persist() {
+    if (busy || !mode) return;
     setBusy(true);
     setProblem(null);
     try {
@@ -56,17 +79,18 @@ export default function UsersPage() {
       <PageTitle title="Users" help="Each person signs in with their own account, so every sale and change carries their name. Accounts are switched off, never deleted."
         action={<button className="btn-primary" onClick={() => open({ kind: "new" })}>+ Add User</button>} />
       <div className="card overflow-x-auto">
+        {(list.data?.results.length ?? 0) > 0 && <div className="mb-3 flex justify-end"><ColumnPicker visibility={cols} /></div>}
         {list.loading && !list.data ? <Spinner /> : list.error ? <Alert kind="error">{list.error}</Alert> : (
           <table className="table">
-            <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th>Last signed in</th><th /></tr></thead>
+            <thead><tr>{cols.show("name") && <th>Name</th>}{cols.show("username") && <th>Username</th>}{cols.show("role") && <th>Role</th>}{cols.show("status") && <th>Status</th>}{cols.show("login") && <th>Last signed in</th>}<th /></tr></thead>
             <tbody>
               {list.data!.results.map((u) => (
                 <tr key={u.id} className={u.is_active ? "" : "text-slate-500"}>
-                  <td className="font-semibold">{u.display_name}{u.id === me?.id && " (you)"}</td>
-                  <td>{u.username}</td>
-                  <td>{ROLES.find((r) => r.value === u.role)?.label}</td>
-                  <td><StatusBadge status={u.is_active ? "OPEN" : "OFF"} label={u.is_active ? "Active" : "Switched off"} /></td>
-                  <td>{u.last_login ? formatDate(u.last_login) : "Never"}</td>
+                  {cols.show("name") && <td className="font-semibold">{u.display_name}{u.id === me?.id && " (you)"}</td>}
+                  {cols.show("username") && <td>{u.username}</td>}
+                  {cols.show("role") && <td>{ROLES.find((r) => r.value === u.role)?.label}</td>}
+                  {cols.show("status") && <td><StatusBadge status={u.is_active ? "OPEN" : "OFF"} label={u.is_active ? "Active" : "Switched off"} /></td>}
+                  {cols.show("login") && <td>{u.last_login ? formatDate(u.last_login) : "Never"}</td>}
                   <td className="space-x-2 whitespace-nowrap text-right">
                     <button className="btn-secondary min-h-[2.5rem]" onClick={() => open({ kind: "edit", user: u })}>Edit</button>
                     <button className="btn-secondary min-h-[2.5rem]" onClick={() => open({ kind: "password", user: u })}>New password</button>
@@ -111,12 +135,13 @@ export default function UsersPage() {
               </Field>
             )}
             <div className="flex gap-3 pt-2">
-              <button className="btn-primary" disabled={busy}>{busy ? "Saving…" : "Save"}</button>
+              <button className="btn-primary" disabled={busy || asking}>{busy ? "Saving…" : "Save"}</button>
               <button type="button" className="btn-secondary" onClick={() => setMode(null)}>Cancel</button>
             </div>
           </form>
         </Modal>
       )}
+      {confirmation}
     </div>
   );
 }

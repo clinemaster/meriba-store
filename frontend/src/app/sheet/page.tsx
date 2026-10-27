@@ -1,12 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
-import { Alert, Field, Modal, PageTitle, Spinner } from "@/components/ui";
+import { Alert, Field, Modal, PageTitle, Spinner, StockBadge, useConfirm } from "@/components/ui";
+import { ColumnPicker } from "@/components/ColumnPicker";
+import { StockValue, type StockValueStatement } from "@/components/StockValue";
+import type { ColumnDef } from "@/lib/columns";
+import { useColumnVisibility } from "@/lib/useColumnVisibility";
 import { api, errorMessage } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { formatDate, formatQty, formatTZS } from "@/lib/money";
-import type { CurrentDay } from "@/lib/types";
+import { useLiveReload } from "@/lib/stockLevels";
+import type { CurrentDay, StockStatus } from "@/lib/types";
 import { useLoad } from "@/lib/useLoad";
 
 import { SheetSale } from "./SheetSale";
@@ -18,6 +24,7 @@ type Line = {
   sales_price: string | null; total_sales: string | null; profit?: string | null; stock: string | null; total_purchases?: string | null;
   other_movements: string; recorded_sales_value: string | null; differs_from_recorded: boolean;
   source?: string; formula_differs?: string[]; incomplete?: boolean; approved_profit?: string | null;
+  stock_status?: StockStatus;  // today's sheet only
 };
 type EmptyCell = {
   id: number; date: string; worksheet: string; row: number; product: string; sales: string; purchase_price: string | null;
@@ -30,6 +37,7 @@ type Sheet = {
   totals: Record<string, string>;
   previous_date: string | null; next_date: string | null; columns: { key: string; label: string }[];
   lines_with_other_movements: number; lines_differing_from_recorded: number; lines_where_formula_differs: number;
+  stock_value?: StockValueStatement | null;  // Owner and Accountant only
 };
 
 // Shown as plain numbers with thousands separators, the way the workbook shows them (no "TZS" on every cell).
@@ -43,11 +51,20 @@ export default function DailySheetPage() {
   const [date, setDate] = useState("");
   const sheet = useLoad<Sheet>(`/daily-sheet/${date ? `?date=${date}` : ""}`);
   const current = useLoad<CurrentDay>("/day/current/");
+  // Today's sheet keeps up with sales made at the other tills; a past sheet never changes.
+  useLiveReload(() => { if (sheet.data?.source === "LIVE") sheet.reload(); });
   const [typed, setTyped] = useState<Record<number, string>>({});
   const [entry, setEntry] = useState<{ line: Line; quantity: number } | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [find, setFind] = useState("");
   const data = sheet.data;
+  const defs = useMemo<ColumnDef[]>(() => [
+    ...(data?.columns ?? []).map((c) => ({ ...c, essential: c.key === "number" || c.key === "details" })),
+    ...(data && data.lines_with_other_movements > 0 ? [{ key: "other", label: "Other" }] : []),
+  ], [data]);
+  const cols = useColumnVisibility("daily-sheet", defs);
+  const shown = (data?.columns ?? []).filter((c) => cols.show(c.key));
+  const showOther = (data?.lines_with_other_movements ?? 0) > 0 && cols.show("other");
   const words = find.toLowerCase().split(/\s+/).filter(Boolean);
   const visible = (data?.lines ?? []).filter((l) => words.every((w) => l.details.toLowerCase().includes(w)));
 
@@ -103,12 +120,13 @@ export default function DailySheetPage() {
           )}
 
           <div className="card overflow-x-auto p-0">
+            {data.lines.length > 0 && <div className="flex justify-end p-3 pb-0"><ColumnPicker visibility={cols} /></div>}
             {data.lines.length === 0 ? <p className="p-6 text-slate-600">{data.note}{office && " Use the arrows to move to a day that has a sheet."}</p> : (
-              <table className="table min-w-[1200px]">
+              <table className="table min-w-[1050px]">
                 <thead className="sticky top-0 bg-white">
                   <tr>
-                    {data.columns.map((c, i) => <th key={c.key} className={i >= 2 ? "num" : ""}>{c.label}</th>)}
-                    {data.lines_with_other_movements > 0 && <th className="num">Other</th>}
+                    {shown.map((c) => <th key={c.key} className={c.key === "number" || c.key === "details" ? "" : "num"}>{c.label}</th>)}
+                    {showOther && <th className="num">Other</th>}
                     {canType && <th>Add to Sales</th>}
                   </tr>
                 </thead>
@@ -118,7 +136,7 @@ export default function DailySheetPage() {
                     const left = Number(l.closing_stock ?? 0);
                     return (
                       <tr key={`${l.number}-${l.details}`}>
-                        {data.columns.map((c) => {
+                        {shown.map((c) => {
                           const value = (l as unknown as Record<string, string | number | null>)[c.key];
                           if (c.key === "number") return <td key={c.key}>{l.number}</td>;
                           if (c.key === "details") return (
@@ -129,13 +147,13 @@ export default function DailySheetPage() {
                           return (
                             <td key={c.key} className={`num ${c.key === "closing_stock" ? "font-semibold" : ""} ${warn ? "bg-amber-50 font-semibold" : ""}`}
                               title={warn ? "Written differently in the workbook from what its formula gives" : undefined}>
-                              {warn ? `⚠ ${text || "(empty)"}` : text}
+                              {c.key === "closing_stock" && l.stock_status && !warn ? <StockBadge status={l.stock_status} quantity={String(value ?? 0)} /> : warn ? `⚠ ${text || "(empty)"}` : text}
                               {c.key === "profit" && l.approved_profit && <span className="block text-sm font-normal text-slate-700" title="Approved by the Owner. The workbook's cell is still empty.">Owner approved {n(l.approved_profit)}</span>}
                               {c.key === "total_sales" && l.differs_from_recorded && <span className="block text-sm text-slate-600" title="Money actually taken for this product, after refunds">taken {n(l.recorded_sales_value)}</span>}
                             </td>
                           );
                         })}
-                        {data.lines_with_other_movements > 0 && <td className="num">{Number(l.other_movements) ? `${Number(l.other_movements) > 0 ? "+" : ""}${n(l.other_movements)}` : ""}</td>}
+                        {showOther && <td className="num">{Number(l.other_movements) ? `${Number(l.other_movements) > 0 ? "+" : ""}${n(l.other_movements)}` : ""}</td>}
                         {canType && (
                           <td>
                             {l.product && left > 0 ? (
@@ -153,8 +171,8 @@ export default function DailySheetPage() {
                 </tbody>
                 <tfoot>
                   <tr className="font-bold">
-                    {data.columns.map((c) => <td key={c.key} className={c.key === "details" ? "" : "num"}>{c.key === "details" ? "TOTAL" : n(data.totals[c.key])}</td>)}
-                    {data.lines_with_other_movements > 0 && <td />}
+                    {shown.map((c) => <td key={c.key} className={c.key === "details" ? "" : "num"}>{c.key === "details" ? "TOTAL" : c.key === "number" ? "" : n(data.totals[c.key])}</td>)}
+                    {showOther && <td />}
                     {canType && <td />}
                   </tr>
                 </tfoot>
@@ -162,14 +180,20 @@ export default function DailySheetPage() {
             )}
           </div>
 
+          {data.stock_value && (
+            <section aria-label="Stock value" className="card">
+              <h2 className="mb-3 text-xl font-bold">Stock value after the day&apos;s sales</h2>
+              <StockValue value={data.stock_value} />
+            </section>
+          )}
+
           {office && <EmptyProfitCells onOpen={setDate} onChanged={sheet.reload} />}
 
           <details className="card text-sm text-slate-700">
             <summary className="cursor-pointer font-semibold">How each column is worked out (the same sums as the Excel workbook)</summary>
             <ul className="ml-5 mt-2 list-disc space-y-1">
               <li><strong>Opening stock</strong> = the previous sheet&apos;s Closing stock.</li>
-              <li><strong>Total stock</strong> = Opening stock + Add Purchases.</li>
-              <li><strong>Closing stock</strong> = Total stock − Sales.</li>
+              <li><strong>Closing stock</strong> = Opening stock + Add Purchases − Sales.</li>
               <li><strong>Total Sales</strong> = Sales × Sales price.</li>
               {office && <li><strong>Profit</strong> = Sales × (Sales price − Purchase price).</li>}
               <li><strong>Stock</strong> = Closing stock × Sales price (the value of what is left, at selling price).</li>
@@ -194,12 +218,13 @@ export default function DailySheetPage() {
 /** Profit cells the workbook left empty on a line with sales. They stay empty; only the Owner may approve a figure. */
 function EmptyProfitCells({ onOpen, onChanged }: { onOpen: (date: string) => void; onChanged: () => void }) {
   const cells = useLoad<EmptyCells>("/history/empty-profit-cells/");
-  const me = useLoad<{ role: string }>("/auth/me/");
+  const { user } = useAuth();
   const [open, setOpen] = useState<EmptyCell | null>(null);
   const [value, setValue] = useState("");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const { confirm, confirmation, asking } = useConfirm();
   if (!cells.data || cells.data.count === 0) return null;
 
   async function approve() {
@@ -235,7 +260,7 @@ function EmptyProfitCells({ onOpen, onChanged }: { onOpen: (date: string) => voi
                 <td className="num">(empty)</td><td className="num">{n(c.formula_would_give)}</td>
                 <td>{c.correction
                   ? <span className="text-sm">Approved {n(c.correction.approved_value)} by {c.correction.approved_by}, {formatDate(c.correction.approved_at)}. {c.correction.reason}</span>
-                  : me.data?.role === "OWNER"
+                  : user?.role === "OWNER"
                     ? <button className="btn-secondary min-h-[2.5rem]" onClick={() => { setOpen(c); setValue(""); setReason(""); setProblem(null); }}>Approve a figure…</button>
                     : <span className="text-sm text-slate-600">Waiting for the Owner</span>}</td>
               </tr>
@@ -252,10 +277,15 @@ function EmptyProfitCells({ onOpen, onChanged }: { onOpen: (date: string) => voi
             <Field label="Reason">{(p) => <textarea {...p} className="input" rows={2} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />}</Field>
             {problem && <Alert kind="error">{problem}</Alert>}
             <div className="flex flex-wrap gap-3">
-              <button className="btn-primary" disabled={busy || value === "" || reason.trim().length < 5} onClick={approve}>{busy ? "Saving…" : "Record the approved figure"}</button>
+              <button className="btn-primary" disabled={busy || asking || value === "" || reason.trim().length < 5}
+                onClick={() => confirm({
+                  message: `Record ${n(value)} as the approved Profit for ${open.product} (${open.worksheet}, row ${open.row})? It cannot be replaced afterwards.`,
+                  yes: "Yes, record it", run: approve,
+                })}>{busy ? "Saving…" : "Record the approved figure"}</button>
               <button className="btn-secondary" disabled={busy} onClick={() => setOpen(null)}>Cancel</button>
             </div>
           </div>
+          {confirmation}
         </Modal>
       )}
     </details>

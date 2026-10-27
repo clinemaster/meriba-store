@@ -231,6 +231,9 @@ test("owner accepts the history; live stock was never touched", async ({ page })
   await expect(accept).toBeDisabled();
   await page.getByLabel("On what basis do you accept it?").fill("All exceptions reviewed with the accountant");
   await accept.click();
+  const box = page.getByRole("alertdialog");
+  await expect(box).toContainText("Accept the historical data as reconciled?");
+  await box.getByRole("button", { name: "Yes, accept" }).click();
   await expect(page.getByText("Accepted as reconciled by the Owner.")).toBeVisible();
 
   // lines affected by the gap were accepted without explanation, so they stay marked incomplete
@@ -241,7 +244,9 @@ test("owner accepts the history; live stock was never touched", async ({ page })
   await expect(incomplete.first()).toContainText("Konyagi ndogo");
 
   // the historical figures (Konyagi closing 60, Safari 20) changed nothing in the live system
-  await page.getByRole("link", { name: "Products", exact: true }).first().click();
+  const menu = page.getByRole("navigation", { name: "Main menu" });
+  if (!(await menu.getByRole("link", { name: "Products", exact: true }).isVisible())) await menu.getByRole("button", { name: "Stock" }).click(); // its group may be closed
+  await menu.getByRole("link", { name: "Products", exact: true }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Products" })).toBeVisible();
   await expect(page.getByRole("row").filter({ hasText: "Konyagi ndogo" })).toContainText("58");
   const mkwawa = page.getByRole("row").filter({ hasText: "mkwawa" });

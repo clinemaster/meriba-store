@@ -1,5 +1,7 @@
 /** One place for every call to the shop system. Turns failures into plain-language messages. */
 
+import { announceDataChanged } from "./stockLevels";
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -48,6 +50,8 @@ export async function api<T = unknown>(path: string, options: { method?: string;
   } catch {
     throw new ApiError("We could not reach the shop system. Check the connection and try again.", 0, "network");
   }
+  // A saved change (a sale, a delivery, a count…) may have moved stock: let stock figures on screen refresh.
+  if (response.ok && !SAFE.has(method)) announceDataChanged();
   if (response.status === 204) return undefined as T;
   let data: any = null;
   try {

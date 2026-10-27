@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { Alert, Field, PageTitle, Spinner, StatusBadge } from "@/components/ui";
+import { Alert, Field, PageTitle, Spinner, StatusBadge, useConfirm } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
 import { centsToApi, formatTZS, toCents } from "@/lib/money";
 import type { PaymentMethod, ShopSettings } from "@/lib/types";
@@ -16,6 +16,7 @@ export default function SettingsPage() {
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  const { confirm, confirmation, asking } = useConfirm();
 
   useEffect(() => {
     if (shop.data) {
@@ -84,9 +85,15 @@ export default function SettingsPage() {
                 <td>{m.reference_label || "—"}</td>
                 <td><StatusBadge status={m.is_active ? "OPEN" : "OFF"} label={m.is_active ? "Switched on" : "Switched off"} /></td>
                 <td className="text-right">
-                  <button className="btn-secondary min-h-[2.5rem]" disabled={busy || (m.is_active && activeCount === 1)}
+                  <button className="btn-secondary min-h-[2.5rem]" disabled={busy || asking || (m.is_active && activeCount === 1)}
                     title={m.is_active && activeCount === 1 ? "At least one payment method must stay on" : undefined}
-                    onClick={() => run(() => api(`/payment-methods/${m.id}/`, { method: "PATCH", body: { is_active: !m.is_active } }), `${m.name} switched ${m.is_active ? "off" : "on"}.`)}>
+                    onClick={() => confirm({
+                      message: m.is_active
+                        ? `Switch off ${m.name}? Cashiers will no longer be able to take payments by ${m.name}. Past payments are not changed.`
+                        : `Switch on ${m.name}? Cashiers will be able to take payments by ${m.name}.`,
+                      yes: m.is_active ? "Yes, switch off" : "Yes, switch on",
+                      run: () => run(() => api(`/payment-methods/${m.id}/`, { method: "PATCH", body: { is_active: !m.is_active } }), `${m.name} switched ${m.is_active ? "off" : "on"}.`),
+                    })}>
                     {m.is_active ? "Switch off" : "Switch on"}
                   </button>
                 </td>
@@ -112,6 +119,7 @@ export default function SettingsPage() {
           </div>
         </form>
       </section>
+      {confirmation}
     </div>
   );
 }

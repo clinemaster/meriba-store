@@ -1,3 +1,5 @@
+import uuid
+
 from django.conf import settings
 from django.db import models
 from django.db.models import Q
@@ -91,3 +93,41 @@ class Expense(models.Model):
 
     def delete(self, *args, **kwargs):
         raise ImmutableError("Expenses cannot be deleted. Cancel the expense with a reason instead.")
+
+
+class ReceiptImport(models.Model):
+    """One upload of the "Upload Received Stock" workbook: what the file said, and what was done with it.
+
+    Nothing changes stock until the batch is confirmed. Confirming posts ordinary stock receipts through
+    receive_stock(), so the costing, ledger and audit rules are the same as for a delivery typed by hand.
+    The file's fingerprint is kept so the same file cannot add stock a second time by accident.
+    """
+
+    class Status(models.TextChoices):
+        PREVIEW = "PREVIEW", "Previewed, not imported"
+        CONFIRMED = "CONFIRMED", "Imported"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)  # the import batch number
+    branch = models.ForeignKey("core.Branch", on_delete=models.PROTECT, related_name="+")
+    file_name = models.CharField(max_length=200)
+    file_hash = models.CharField(max_length=64, db_index=True)
+    rows = models.JSONField(help_text="The rows exactly as read from the file")
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PREVIEW)
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    confirmed_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    receipts = models.ManyToManyField(GoodsReceipt, blank=True, related_name="imports")
+    result = models.JSONField(null=True, blank=True, help_text="The summary shown when it was imported")
+    reimport_reason = models.CharField(max_length=300, blank=True)
+    # The Owner's review, kept until confirmed: corrections by Excel row number, and combine/separate per product.
+    edits = models.JSONField(default=dict, blank=True)
+    decisions = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(status="PREVIEW", confirmed_by__isnull=True) | Q(status="CONFIRMED", confirmed_by__isnull=False),
+                name="receipt_import_confirmation_recorded"),
+        ]

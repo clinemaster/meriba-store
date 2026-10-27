@@ -128,6 +128,29 @@ class DayCorrection(AppendOnlyModel):
         ]
 
 
+class OpeningBalanceChange(AppendOnlyModel):
+    """An Owner-authorised change to an open day's opening cumulative sales balance.
+
+    The carried figure and the new one are both kept, with the reason and who authorised it. When an earlier
+    closed day is corrected later, this day's opening follows the new carried figure plus these changes.
+    """
+
+    business_day = models.ForeignKey(BusinessDay, on_delete=models.PROTECT, related_name="opening_changes")
+    opening_before = models.DecimalField(max_digits=16, decimal_places=2)
+    opening_after = models.DecimalField(max_digits=16, decimal_places=2)
+    reason = models.CharField(max_length=500)
+    authorised_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-id"]
+        constraints = [
+            models.CheckConstraint(condition=~Q(opening_after=F("opening_before")), name="opening_change_not_zero"),
+            models.CheckConstraint(condition=Q(opening_after__gte=0), name="opening_change_not_negative"),
+            models.CheckConstraint(condition=~Q(reason=""), name="opening_change_needs_reason"),
+        ]
+
+
 class CashierShift(models.Model):
     """A cashier's accountable period inside a business day, with its own cash count."""
 

@@ -203,10 +203,52 @@ class GoLiveView(APIView):
         return Response(SettingsSerializer(cfg).data)
 
 
+# Where an audit entry names products by their id: maps keyed by product id under these keys (or the whole
+# before/after for stock counts and adjustments), and a single "product" value.
+AUDIT_PRODUCT_MAPS = {"quantities", "lines", "products", "restocked"}
+AUDIT_PRODUCT_KEYED = {"StockAdjustment", "OpeningCount"}
+
+
+def _audit_product_ids(entry) -> set[int]:
+    ids = set()
+    for side in (entry.before, entry.after):
+        if not isinstance(side, dict):
+            continue
+        maps = [side] if entry.entity_type in AUDIT_PRODUCT_KEYED else []
+        maps += [v for k, v in side.items() if k in AUDIT_PRODUCT_MAPS and isinstance(v, dict)]
+        ids |= {int(k) for m in maps for k in m if str(k).isdigit()}
+        if isinstance(side.get("product"), int):
+            ids.add(side["product"])
+    return ids
+
+
+def _status_labels(entity_type: str) -> dict:
+    """The words the record's own model uses for its status codes, so "PENDING" reads as on the screen it came from."""
+    from django.apps import apps
+
+    model = next((m for m in apps.get_models() if m.__name__ == entity_type), None)
+    try:
+        return {str(code): str(label) for code, label in model._meta.get_field("status").choices or []}
+    except Exception:
+        return {}
+
+
 class AuditLogSerializer(serializers.ModelSerializer):
+    # Names of the products the entry refers to by id, and the meaning of its status codes, for the Details view.
+    product_names = serializers.SerializerMethodField()
+    status_labels = serializers.SerializerMethodField()
+
     class Meta:
         model = AuditLog
-        fields = ["id", "created_at", "actor_username", "action", "entity_type", "entity_id", "summary", "reason", "before", "after"]
+        fields = ["id", "created_at", "actor_username", "action", "entity_type", "entity_id", "summary", "reason", "before", "after",
+                  "product_names", "status_labels"]
+
+    def get_product_names(self, entry):
+        names = self.context.get("product_names", {})
+        return {str(pk): names[pk] for pk in sorted(_audit_product_ids(entry)) if pk in names}
+
+    def get_status_labels(self, entry):
+        return _status_labels(entry.entity_type) if entry.entity_type else {}
 
 
 class AuditLogListView(generics.ListAPIView):
@@ -225,6 +267,17 @@ class AuditLogListView(generics.ListAPIView):
         if params.get("date_to"):
             qs = qs.filter(created_at__date__lte=params["date_to"])
         return qs
+
+    def get_serializer(self, *args, **kwargs):
+        # One query for the names of every product mentioned on this page.
+        entries = args[0] if args else []
+        ids = set().union(*(_audit_product_ids(e) for e in entries)) if entries else set()
+        if ids:
+            from catalog.models import Product
+
+            kwargs.setdefault("context", self.get_serializer_context())
+            kwargs["context"]["product_names"] = {p.pk: str(p) for p in Product.objects.filter(pk__in=ids)}
+        return super().get_serializer(*args, **kwargs)
 
 
 def opening_stock_state_for(branch) -> dict:

@@ -661,3 +661,24 @@ def test_adding_the_latest_sheets_products_uses_only_what_the_sheet_states(owner
     assert clash.selling_price == 9999  # an existing product is never overwritten
     again = services.products_from_latest_sheet(owner=owner, commit=True)
     assert (again["created"], again["mapped_to_existing"], again["already_done"]) == ([], [], 2) and Product.objects.count() == before + 1
+
+
+def test_the_owners_unit_answer_adds_a_box_line_and_never_overrides_the_sheet(owner):
+    """Question X1, answered 14 Oct 2026: for a "Box (n)" line the Owner says what one unit is."""
+    from catalog.models import Product
+    from history import services
+
+    days = {SEP10: [line(3, "Windhock", 8, 0, 17500, 21000), line(11, "Bavaria", 8, 0, 3125, 3500),
+                    line(20, "Hajos wine dum", 2, 0, 25000, 30000), line(30, "Amarula kubwa", 6, 1, 28000, 35000)]}
+    assert commit(client_for(owner), workbook(days, with_totals=False)).status_code == 201
+    SourceProduct.objects.filter(source_name__in=["Windhock", "Bavaria", "Hajos wine dum"]).update(proposed_unit="", pack_text="Box (4)")
+    SourceProduct.objects.filter(source_name="Amarula kubwa").update(proposed_unit="Bottle", proposed_package_size="750mls")
+
+    done = services.products_from_latest_sheet(owner=owner, commit=True, units={3: "Pack", 20: "Bottle", 30: "Crate"},
+                                               sizes={20: "5000ml"})
+    assert {r["name"]: r["unit"] for r in done["created"]} == {"Windhock": "Pack", "Hajos wine dum": "Bottle", "Amarula kubwa": "Bottle"}
+    assert [r["name"] for r in done["left_for_owner"]] == ["Bavaria"]  # no answer given: still waits
+    windhock, hajos = Product.objects.get(name="Windhock"), Product.objects.get(name="Hajos wine dum")
+    assert (windhock.base_unit, windhock.pack_description, windhock.selling_price, windhock.bottles_per_unit) == ("Pack", "Box (4)", 21000, None)
+    assert (hajos.package_size, hajos.volume_ml) == ("5000ml", 5000)
+    assert "Owner confirmed one unit is a pack" in SourceProduct.objects.get(source_name="Windhock").decision_note

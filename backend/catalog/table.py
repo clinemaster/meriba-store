@@ -20,6 +20,7 @@ from inventory.services import current_business_date
 from sales.models import RefundItem, Sale, SaleItem
 
 from .models import Product
+from .stock_levels import stock_status
 
 ZERO = Decimal("0")
 T = InventoryMovement.Type
@@ -99,6 +100,8 @@ def rows_for(products, start: date, end: date) -> list[dict]:
             "total_sales": total_sales, "cost_of_goods_sold": None if profit is None else cost_of_goods,
             "profit": profit, "profit_status": profit_status,
             "stock": stock.get(p.pk) or ZERO,
+            # The level of the stock right now (not of the period), with the product's own warning levels.
+            "stock_status": stock_status(stock.get(p.pk) or ZERO, p.reorder_point, p.critical_point),
         })
     return rows
 
@@ -134,7 +137,7 @@ def totals(rows: list[dict]) -> dict:
 def search(qs, text: str):
     for word in (text or "").split():
         qs = qs.filter(Q(name__icontains=word) | Q(sku__icontains=word) | Q(package_size__icontains=word)
-                       | Q(brand__icontains=word) | Q(barcode=word))
+                       | Q(brand__icontains=word))
     return qs
 
 

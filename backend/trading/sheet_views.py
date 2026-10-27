@@ -13,10 +13,11 @@ from core.services import audit, get_branch
 from inventory.services import current_business_date
 
 from . import sheet
+from .models import BusinessDay
 
 # The workbook's headings, in the workbook's order. The opening-stock column has no real heading there.
 COLUMNS = [("number", "S/N"), ("details", "Details"), ("opening", "Opening stock"), ("purchases", "Add Purchases"),
-           ("total_stock", "Total stock"), ("sales", "Sales"), ("closing_stock", "Closing stock"), ("purchase_price", "Purchase price"),
+           ("sales", "Sales"), ("closing_stock", "Closing stock"), ("purchase_price", "Purchase price"),
            ("sales_price", "Sales price"), ("total_sales", "Total Sales"), ("profit", "Profit"), ("stock", "Stock"),
            ("total_purchases", "T.Purchases")]
 OFFICE_ONLY = {"purchase_price", "profit", "total_purchases"}
@@ -66,13 +67,33 @@ class DailySheetView(APIView):
             writer.writerow([label for _, label in COLUMNS])
             for line in data["lines"]:
                 writer.writerow(["" if line[key] is None else _plain(line[key]) for key, _ in COLUMNS])
-            writer.writerow(["", "TOTAL", "", _plain(data["totals"]["purchases"]), "", _plain(data["totals"]["sales"]), "", "", "",
+            writer.writerow(["", "TOTAL", "", _plain(data["totals"]["purchases"]), _plain(data["totals"]["sales"]), "", "", "",
                              _plain(data["totals"]["total_sales"]), _plain(data["totals"]["profit"]), _plain(data["totals"]["stock"]),
                              _plain(data["totals"]["total_purchases"])])
             audit(request.user, "report.exported", summary=f"Exported the Daily Sheet for {day}")
             return response
 
-        return Response({**_plain(data), "columns": [{"key": key, "label": label} for key, label in COLUMNS]})
+        return Response({**_plain(data), "columns": [{"key": key, "label": label} for key, label in COLUMNS],
+                         "stock_value": _plain(sheet.stock_value(day))})
+
+
+class StockValueView(APIView):
+    """Owner/Accountant: the money value of the stock for the current business day (or ?date=), after its sales."""
+
+    permission_classes = [IsOwnerOrAccountant]
+
+    @extend_schema(responses={200: dict})
+    def get(self, request):
+        try:
+            day = date.fromisoformat(request.query_params["date"]) if request.query_params.get("date") else current_business_date(get_branch())
+        except ValueError:
+            raise BusinessRuleError("Choose a valid date.", code="bad_date", status_code=400)
+        value = sheet.stock_value(day)
+        if value is None and not request.query_params.get("date"):
+            # No day started yet today: the latest day there is, so the Owner still sees where the stock stands.
+            latest = BusinessDay.objects.filter(branch=get_branch(), date__lte=day).order_by("-date").values_list("date", flat=True).first()
+            value = latest and sheet.stock_value(latest)
+        return Response({"stock_value": _plain(value)})
 
 
 class WorkbookComparisonView(APIView):

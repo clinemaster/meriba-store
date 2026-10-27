@@ -38,10 +38,10 @@ Last updated: 12 Oct 2026.
 ### 3.3 Products and units
 | ID | Status | Notes |
 |---|---|---|
-| FR-PROD-01 Product fields | 🟡 | Name, code, barcode, Unit (approved list), volume (ml), bottles per unit, selling price, purchase price, weighted-average cost, active. Category and brand are stored but not on the screens. Suppliers are linked to deliveries, not to products |
+| FR-PROD-01 Product fields | 🟡 | Name, code, Unit (approved list), volume (ml), bottles per unit, selling price, purchase price, weighted-average cost, active. Category and brand are stored but not on the screens. Suppliers are linked to deliveries, not to products |
 | Product table enhancement (12 Oct 2026): eleven columns per business day or date range, search, sort, pagination, details, export | ✅ | See the section in [OPEN_DECISIONS.md](OPEN_DECISIONS.md); decisions P1–P12 need confirmation |
 | Weighted-average costing; cost frozen on each sale line; gross profit, shown as not available or provisional when cost is unreliable | ✅ | |
-| FR-PROD-02 Search | ✅ | Name, code, barcode, category, size |
+| FR-PROD-02 Search | ✅ | Name, code, category, size. Barcodes were removed at the owner's request (21 Oct 2026) |
 | FR-PROD-03 No merging of similar names | ✅ | Nothing is merged automatically |
 | FR-PROD-04/05 Verified pack conversions; block unverified | ✅ | Configured in the product's Details view, verified by the Owner, sold from the New Sale screen. Changes are audited and need re-verification |
 | FR-PROD-06 Deactivate, never delete | ✅ | |
@@ -85,7 +85,7 @@ Last updated: 12 Oct 2026.
 ### 3.7 Purchasing and receiving — 🟡
 Receiving a delivery (FR-PUR-02, 03, 05) ✅: deliberate confirmed step, stock movement linked to the delivery, supplier/invoice/cost optional and never invented, safe to retry. Draft purchase orders (FR-PUR-01) and matching a delivery against an order (FR-PUR-04) ⬜.
 ### 3.8 Low stock and reordering — 🟡
-Status (In stock / Low / Out) on products and the sale screen ✅ (AT-03). Low-stock report with suggested order quantity, never negative ✅ (FR-LOW-04, 07 except last movement date). Per-branch thresholds, notifications and draft purchase orders ⬜.
+Colour-coded status (Healthy / Low / Critical / Out, each with icon and word) on Products, Stock, Receive Stock, today's Daily Sheet, the stock reports and the Home page, from per-product low-stock and critical levels set by the Owner or Accountant ✅ (AT-03). Home page counts per level, linked to a filtered product list ✅. A notification to the Owner and Accountant, once, when a stock movement makes a product's level worse ✅. Low-stock report with suggested order quantity, never negative ✅ (FR-LOW-04, 07 except last movement date). Per-branch thresholds and draft purchase orders ⬜.
 
 ### 3.9 Stock counts and adjustments
 | ID | Status | Notes |

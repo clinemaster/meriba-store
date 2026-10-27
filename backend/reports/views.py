@@ -12,7 +12,7 @@ from rest_framework.views import APIView
 
 from accounts.permissions import IsOwnerOrAccountant
 from catalog.models import Product
-from catalog.views import stock_status
+from catalog.stock_levels import IN_STOCK, LABELS, stock_status
 from core.errors import BusinessRuleError
 from core.services import audit, get_branch, local_today
 from finance.models import Expense, GoodsReceipt
@@ -129,13 +129,13 @@ def _stock_rows(only_low=False):
     rows = []
     for p in Product.objects.filter(is_active=True).order_by("name", "package_size"):
         qty = balances.get(p.pk, ZERO)
-        status = stock_status(qty, p.reorder_point)
-        if only_low and status == "IN_STOCK":
+        status = stock_status(qty, p.reorder_point, p.critical_point)
+        if only_low and status == IN_STOCK:
             continue
         rows.append({
             "code": p.sku, "product": str(p), "unit": p.base_unit, "quantity": qty, "reorder_point": p.reorder_point,
-            "target_stock": p.target_stock,
-            "status": {"IN_STOCK": "In stock", "LOW_STOCK": "Low stock", "OUT_OF_STOCK": "Out of stock"}[status],
+            "critical_point": p.critical_point, "target_stock": p.target_stock,
+            "status": LABELS[status],
             "suggested_order": max(p.target_stock - qty, ZERO),  # FR-LOW-04: never negative
             # Valued at the weighted-average cost of what is in stock, not at the latest purchase price.
             "cost_price": p.cost_price, "stock_value": None if p.cost_price is None else qty * p.cost_price,
@@ -153,7 +153,7 @@ def stock_on_hand(params):
 def low_stock(params):
     rows = _stock_rows(only_low=True)
     cols = [col("code", "Code"), col("product", "Product"), col("unit", "Counted by"), col("quantity", "In stock", Q3),
-            col("reorder_point", "Low-stock level", Q3), col("target_stock", "Target", Q3),
+            col("reorder_point", "Low-stock level", Q3), col("critical_point", "Critical level", Q3), col("target_stock", "Target", Q3),
             col("suggested_order", "Suggested order", Q3), col("status", "Status")]
     return cols, rows, []
 

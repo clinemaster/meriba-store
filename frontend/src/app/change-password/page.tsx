@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Alert, Field, PageTitle } from "@/components/ui";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { replaceTo } from "@/lib/backNav";
 
 export default function ChangePasswordPage() {
   const { user, refresh } = useAuth();
@@ -25,7 +26,7 @@ export default function ChangePasswordPage() {
     try {
       await api("/auth/change-password/", { method: "POST", body: { current_password: current, new_password: next } });
       await refresh();
-      router.replace("/");
+      replaceTo(router, "/");
     } catch (err) {
       const fieldErrors = err instanceof ApiError && err.errors ? Object.values(err.errors).flat().join(" ") : "";
       setError(fieldErrors || errorMessage(err));

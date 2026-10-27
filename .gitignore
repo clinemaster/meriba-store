@@ -15,6 +15,7 @@ backend/logs/
 node_modules/
 .next/
 .next-e2e/
+.next-browsertest/
 out/
 coverage/
 e2e-results/

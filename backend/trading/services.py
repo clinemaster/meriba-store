@@ -9,7 +9,7 @@ from core.errors import BusinessRuleError
 from core.models import BusinessSettings
 from core.services import audit, get_branch, local_today, money
 
-from .models import BusinessDay, CashierShift, ShiftPaymentTotal
+from .models import BusinessDay, CashierShift, OpeningBalanceChange, ShiftPaymentTotal
 
 ZERO = Decimal("0.00")
 
@@ -94,9 +94,14 @@ def open_shift_for(user) -> CashierShift | None:
 
 
 @transaction.atomic
-def start_day(*, user, opening_float) -> tuple[CashierShift, bool]:
-    """Start (or continue) the user's shift, opening the business day if nobody has yet."""
+def start_day(*, user, opening_float, opening_cumulative_sales=None, opening_reason="") -> tuple[CashierShift, bool]:
+    """Start (or continue) the user's shift, opening the business day if nobody has yet.
+
+    The Owner may give a different opening cumulative sales balance, with a reason, for the day this opens.
+    """
     branch = get_branch()
+    if opening_cumulative_sales is not None and not user.is_owner:
+        raise BusinessRuleError("Only the Owner can change the opening balance.", code="owner_only", status_code=403)
     # Locking the settings row makes two people starting the day at once take turns.
     cfg = BusinessSettings.objects.select_for_update().get(branch=branch)
     if not cfg.is_live:
@@ -133,6 +138,12 @@ def start_day(*, user, opening_float) -> tuple[CashierShift, bool]:
         )
         audit(user, "day.opened", day, summary=f"Opened business day {day}",
               after={"opening_cumulative_sales": opening, "carried_from": str(last.date) if last else "go-live value"})
+        if opening_cumulative_sales is not None and money(opening_cumulative_sales) != opening:
+            _change_opening(day, owner=user, amount=opening_cumulative_sales, reason=opening_reason)
+    elif opening_cumulative_sales is not None:
+        raise BusinessRuleError(
+            "The day has already been opened. Change its opening balance on the Daily Closing screen.", code="day_already_open"
+        )
     if CashierShift.objects.filter(business_day=day, cashier=user).exists():
         raise BusinessRuleError("You have already closed your shift for today.", code="shift_already_closed")
     shift = CashierShift.objects.create(business_day=day, cashier=user, opening_float=money(opening_float))
@@ -264,6 +275,75 @@ def review_shift(*, shift_id, reviewer, note="", verified_methods=()) -> Cashier
     return shift
 
 
+def _reason(reason: str, message: str) -> str:
+    reason = (reason or "").strip()
+    if len(reason) < 10:
+        raise BusinessRuleError(message, code="reason_required", status_code=400)
+    return reason[:500]
+
+
+@transaction.atomic
+def change_shift_float(*, shift_id, owner, opening_float, reason) -> CashierShift:
+    """Owner only: fix the cash float of a shift that is still open. Expected cash at closing follows it."""
+    reason = _reason(reason, "Explain clearly why the float is being changed.")
+    opening_float = money(opening_float)
+    if opening_float < 0:
+        raise BusinessRuleError("The float cannot be less than 0.", code="bad_amount", status_code=400)
+    shift = CashierShift.objects.select_for_update().select_related("cashier").filter(pk=shift_id).first()
+    if shift is None:
+        raise BusinessRuleError("We could not find that shift.", code="not_found", status_code=404)
+    if shift.status != CashierShift.Status.OPEN:
+        raise BusinessRuleError("This shift is closed. Its float can no longer be changed.", code="shift_closed")
+    if opening_float == shift.opening_float:
+        raise BusinessRuleError("That is already the float for this shift.", code="no_change", status_code=400)
+    before = shift.opening_float
+    shift.opening_float = opening_float
+    shift.save(update_fields=["opening_float"])
+    audit(owner, "shift.float_changed", shift, reason=reason,
+          summary=f"Changed the float of {shift.cashier.display_name}'s shift on {shift.business_day} from {before:,.0f} to {opening_float:,.0f}",
+          before={"opening_float": before}, after={"opening_float": opening_float})
+    return shift
+
+
+def _change_opening(day: BusinessDay, *, owner, amount, reason) -> OpeningBalanceChange:
+    reason = _reason(reason, "Explain clearly why the opening balance is being changed.")
+    amount = money(amount)
+    if amount < 0:
+        raise BusinessRuleError("The opening balance cannot be less than 0.", code="bad_amount", status_code=400)
+    if amount == day.opening_cumulative_sales:
+        raise BusinessRuleError("That is already the opening balance for this day.", code="no_change", status_code=400)
+    before = day.opening_cumulative_sales
+    day.opening_cumulative_sales = amount
+    day.save(update_fields=["opening_cumulative_sales"])
+    change = OpeningBalanceChange.objects.create(
+        business_day=day, opening_before=before, opening_after=amount, reason=reason, authorised_by=owner
+    )
+    audit(owner, "day.opening_changed", day, reason=reason,
+          summary=f"Changed the opening cumulative sales balance of {day} from {before:,.0f} to {amount:,.0f}",
+          before={"opening_cumulative_sales": before}, after={"opening_cumulative_sales": amount})
+    return change
+
+
+@transaction.atomic
+def change_opening_balance(*, day_id, owner, amount, reason) -> OpeningBalanceChange:
+    """Owner only: change the open day's opening cumulative sales balance. Kept, with the reason, as a separate record."""
+    # Same lock as starting a day or correcting one.
+    BusinessSettings.objects.select_for_update().get(branch=get_branch())
+    day = BusinessDay.objects.select_for_update().filter(pk=day_id).first()
+    if day is None:
+        raise BusinessRuleError("We could not find that day.", code="not_found", status_code=404)
+    if day.status != BusinessDay.Status.OPEN:
+        raise BusinessRuleError(
+            "This day is closed. Use Correct… in the balance history to change a closed day.", code="day_closed"
+        )
+    return _change_opening(day, owner=owner, amount=amount, reason=reason)
+
+
+def _opening_offset(day: BusinessDay) -> Decimal:
+    """How far the Owner has moved this day's opening balance away from the figure it carried forward."""
+    return sum((c.opening_after - c.opening_before for c in day.opening_changes.all()), ZERO)
+
+
 @transaction.atomic
 def correct_closed_day(*, day_id, owner, amount, reason, request_key, sale=None) -> tuple["DayCorrection", bool]:
     """Owner-only formal correction of a closed day's net sales.
@@ -276,9 +356,7 @@ def correct_closed_day(*, day_id, owner, amount, reason, request_key, sale=None)
     existing = DayCorrection.objects.filter(request_key=request_key).first()
     if existing:
         return existing, False
-    reason = (reason or "").strip()
-    if len(reason) < 10:
-        raise BusinessRuleError("Explain clearly why this closed day is being corrected.", code="reason_required", status_code=400)
+    reason = _reason(reason, "Explain clearly why this closed day is being corrected.")
     amount = money(amount)
     if amount == 0:
         raise BusinessRuleError("Enter the amount to add or take off.", code="bad_amount", status_code=400)
@@ -299,19 +377,20 @@ def correct_closed_day(*, day_id, owner, amount, reason, request_key, sale=None)
     day.closing_cumulative_sales = day.opening_cumulative_sales + day.net_sales
     day.save(update_fields=["adjustments", "net_sales", "closing_cumulative_sales"])
     correction = DayCorrection.objects.create(
-        business_day=day, amount=amount, reason=reason[:500], sale=sale, request_key=request_key, authorised_by=owner,
+        business_day=day, amount=amount, reason=reason, sale=sale, request_key=request_key, authorised_by=owner,
         net_sales_before=before_net, net_sales_after=day.net_sales,
         closing_before=before_closing, closing_after=day.closing_cumulative_sales,
     )
 
-    # Roll the change forward through every later day so opening always equals the previous closing.
+    # Roll the change forward through every later day so opening always equals the previous closing,
+    # plus any change the Owner made to that day's opening balance.
     carried, recalculated = day.closing_cumulative_sales, []
     later = BusinessDay.objects.select_for_update().filter(branch=day.branch, date__gt=day.date).order_by("date")
     for nxt in later:
         old = (nxt.opening_cumulative_sales, nxt.closing_cumulative_sales)
-        nxt.opening_cumulative_sales = carried
+        nxt.opening_cumulative_sales = carried + _opening_offset(nxt)
         if nxt.status == BusinessDay.Status.CLOSED:
-            nxt.closing_cumulative_sales = carried + nxt.net_sales
+            nxt.closing_cumulative_sales = nxt.opening_cumulative_sales + nxt.net_sales
             carried = nxt.closing_cumulative_sales
         nxt.save(update_fields=["opening_cumulative_sales", "closing_cumulative_sales"])
         recalculated.append({"date": str(nxt.date), "opening": [old[0], nxt.opening_cumulative_sales],

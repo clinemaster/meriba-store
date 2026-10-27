@@ -188,4 +188,40 @@ Result on the shop database: 70 products created (39 Bottle with the 2 already t
 | Henken (two lines, 3,500 and 4,000) | 2 | Open price question in Excel History |
 | MAGIC MOMENT kati | 1 | Open price question: purchase price 9,000 then 1,290 |
 
-"mkwawa" was created but is not on sale: the workbook has no price for it.
+"mkwawa" was created but is not on sale: the workbook has no price for it. (A price of 12,000 was entered later.)
+
+### The "Box (n)" lines and Hajos (14 Oct 2026)
+
+The Owner answered question X1: on a line marked only "BOX(6)", "BOX(12)", "BOX(24)" or "BOX(30)", one unit is one
+bottle or can; on a line marked "Box (4)", one unit is one pack. Hajos wine dum is one 5-litre container. The answer is
+given to the same command per S/N; it is used only where the sheet states no unit:
+
+    python manage.py add_excel_products --owner <owner username> --unit 3=Pack --unit 11=Bottle --size 20=5000ml ... --commit
+
+Backup first: `C:\MeribaBackups\meriba_lsms_2026-10-14_before_adding_box_products.dump`. Result: 38 products created
+(12 Pack: S/N 3, 6, 8, 9, 10, 41, 42, 60, 72, 73, 87, 90; 26 Bottle, including Hajos at 5,000 ml). Bottles per pack is
+not set, because the sheet does not say what a pack holds. The product table now has 110 products. Still left for the
+Owner: Henken (lines 4 and 5) and MAGIC MOMENT kati, the open price questions in Excel History.
+
+### Henken (22 Oct 2026)
+
+The Owner decided the Henken price question (H3 in OPEN_DECISIONS.md): the two lines are different sizes of Henken,
+both sold by the bottle. The exception was closed as "Different package sizes or variants", with the selling and
+purchase prices of each line approved from 31 Aug 2026, and each line was mapped to a new product:
+
+| S/No | Product | Size | Sells | Buys |
+|---|---|---|---|---|
+| 4 | Henken ndogo | 330ml | 3,500 | 2,917 |
+| 5 | Henken kubwa | 500ml | 4,000 | 3,125 |
+
+No stock was created. The product table now has 112 products. Still left for the Owner: MAGIC MOMENT kati.
+
+### MAGIC MOMENT kati (22 Oct 2026)
+
+The Owner decided the MAGIC MOMENT price question (H4 in OPEN_DECISIONS.md): the purchase price of 1,290 written from
+30 Sep 2026 is a typing error, and 9,000 applies. The exception was closed as "Data-entry error", with selling 13,000
+and purchase 9,000 approved from 31 Aug 2026. The sheets keep 1,290 exactly as written. Line 83 ("MAGIC MOMENT" until
+8 Oct, "MAGIC MOMENT kati" on 9 Oct) was mapped to one new product: S/No 83, MAGIC MOMENT kati, Bottle, 375mls,
+sells 13,000, buys 9,000. No stock was created. The product table now has 113 products, one for every line number
+(S/No 1 to 113), and no price question from the workbook is left open. Still waiting in the Product Mapping Review:
+15 older names of lines renamed on 9 Oct (for example "grants", "Hennesy kt"), whose line already has a product.

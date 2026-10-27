@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Receipt } from "@/components/Receipt";
+import { ShareReceipt } from "@/components/ShareReceipt";
 import { Alert, Modal, Spinner } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
 import { centsToApi, formatQty, formatTZS, settle, toCents } from "@/lib/money";
@@ -94,6 +95,7 @@ export function SheetSale({ line, quantity: typed, onClose, onSaved }: {
         <div className="no-print mt-4 flex flex-wrap gap-3">
           <button className="btn-primary" autoFocus onClick={onClose}>Back to the sheet</button>
           <button className="btn-secondary" onClick={() => window.print()}>Print Receipt</button>
+          <ShareReceipt sale={done} shop={shop.data} />
         </div>
       </Modal>
     );

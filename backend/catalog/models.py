@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from django.db import models
-from django.db.models import Q
+from django.db.models import F, Q
 
 
 class SoldBy(models.TextChoices):
@@ -46,7 +46,6 @@ class Product(models.Model):
     serial_number = models.PositiveIntegerField(null=True, blank=True, unique=True)
     # Each product has its own figure; nothing assumes that every crate holds the same number.
     bottles_per_unit = models.PositiveIntegerField(null=True, blank=True)
-    barcode = models.CharField(max_length=64, blank=True)
     selling_price = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     # The purchase price last entered or received, per Sold By unit.
     cost_price = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
@@ -55,7 +54,9 @@ class Product(models.Model):
     average_cost = models.DecimalField(max_digits=16, decimal_places=4, null=True, blank=True)
     # True when part of the average rests on an assumed cost (a delivery recorded without one).
     cost_provisional = models.BooleanField(default=False)
-    reorder_point = models.DecimalField(max_digits=12, decimal_places=3, default=Decimal("0"))
+    # Stock levels for the colour warnings, in the Sold By unit. 0 = no warning. See catalog.stock_levels.
+    reorder_point = models.DecimalField(max_digits=12, decimal_places=3, default=Decimal("0"))  # "Low stock" at or below
+    critical_point = models.DecimalField(max_digits=12, decimal_places=3, default=Decimal("0"))  # "Critical" at or below
     target_stock = models.DecimalField(max_digits=12, decimal_places=3, default=Decimal("0"))
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -64,10 +65,12 @@ class Product(models.Model):
     class Meta:
         ordering = ["name", "package_size", "id"]
         constraints = [
-            models.UniqueConstraint(fields=["barcode"], condition=~Q(barcode=""), name="product_barcode_unique_when_set"),
             models.CheckConstraint(condition=Q(selling_price__gte=0), name="product_price_not_negative"),
             models.CheckConstraint(condition=Q(cost_price__isnull=True) | Q(cost_price__gte=0), name="product_cost_not_negative"),
             models.CheckConstraint(condition=Q(reorder_point__gte=0) & Q(target_stock__gte=0), name="product_thresholds_not_negative"),
+            # A critical level, when set, is below the low-stock level (and so needs one).
+            models.CheckConstraint(condition=Q(critical_point=0) | (Q(critical_point__gt=0) & Q(critical_point__lt=F("reorder_point"))),
+                                   name="product_critical_below_low_stock"),
             models.CheckConstraint(condition=Q(base_unit__in=SoldBy.values), name="product_sold_by_is_approved_unit"),
             models.CheckConstraint(condition=Q(volume_ml__isnull=True) | Q(volume_ml__gt=0), name="product_volume_positive"),
             models.CheckConstraint(condition=Q(bottles_per_unit__isnull=True) | Q(bottles_per_unit__gt=0), name="product_bottles_per_unit_positive"),

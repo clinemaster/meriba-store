@@ -44,13 +44,18 @@ export default function CloseDayPage() {
 
   if (loading && !data) return <Spinner />;
   if (error || !data) return <Alert kind="error">{error}</Alert>;
-  if (closed) return <ClosedSummary shift={closed} />;
+  if (closed) return <><PageTitle title="Close Day" /><ClosedSummary shift={closed} /></>;
   if (!data.shift || !data.shift_figures) {
-    return data.closed_shift_today ? <ClosedSummary shift={data.closed_shift_today} /> : (
-      <div className="card max-w-xl space-y-4">
-        <Alert kind="info">You do not have an open shift to close.</Alert>
-        <Link href="/" className="btn-primary">Back to Home</Link>
-      </div>
+    return (
+      <>
+        <PageTitle title="Close Day" />
+        {data.closed_shift_today ? <ClosedSummary shift={data.closed_shift_today} /> : (
+          <div className="card max-w-xl space-y-4">
+            <Alert kind="info">You do not have an open shift to close.</Alert>
+            <Link href="/" className="btn-primary">Back to Home</Link>
+          </div>
+        )}
+      </>
     );
   }
 

@@ -614,7 +614,7 @@ def open_price_questions() -> int:
 
 # --- Adding the workbook's product list to the product table ---------------------------------
 
-def products_from_latest_sheet(*, owner, commit: bool) -> dict:
+def products_from_latest_sheet(*, owner, commit: bool, units=None, sizes=None) -> dict:
     """Add the products listed on the latest imported sheet to the product table (owner's request, 13 Oct 2026).
 
     Only what the sheet itself states is used: the name as written, the unit where the sheet names one
@@ -623,7 +623,11 @@ def products_from_latest_sheet(*, owner, commit: bool) -> dict:
     to decide in the Product Mapping Review, and is listed in the result. No stock is created; stock on hand
     still comes only from an approved opening count. Each product goes through the same step as a single
     mapping decision, so it is recorded and audited in the same way.
+
+    `units` and `sizes` ({S/N: text}) carry the Owner's own answer for lines where the sheet does not say what one
+    unit is (question X1, answered 14 Oct 2026). They never change a unit the sheet states.
     """
+    units, sizes = units or {}, sizes or {}
     from django.db.models import Max
 
     from catalog.models import Product
@@ -657,12 +661,17 @@ def products_from_latest_sheet(*, owner, commit: bool) -> dict:
             else:
                 result["left_for_owner"].append({**row, "why": "A product with this name already exists with different prices"})
             continue
-        if not sp.proposed_unit:
+        unit, size, line_note = sp.proposed_unit, sp.proposed_package_size, note
+        if not unit and sp.serial_number in units:
+            unit, size = units[sp.serial_number], sizes.get(sp.serial_number, size)
+            line_note = f"{note}; the Owner confirmed one unit is a {unit.lower()} (the sheet says '{sp.pack_text or 'nothing'}')"
+            row["size"] = size
+        if not unit:
             result["left_for_owner"].append({**row, "why": f"The sheet does not say what one unit is (it says '{sp.pack_text or 'nothing'}')"})
             continue
         if commit:
-            decide_source_product(owner=owner, source_product_id=sp.pk, approve=True, note=note, confirmed_name=row["name"],
-                                  confirmed_unit=sp.proposed_unit, confirmed_package_size=sp.proposed_package_size, create_product=True,
+            decide_source_product(owner=owner, source_product_id=sp.pk, approve=True, note=line_note, confirmed_name=row["name"],
+                                  confirmed_unit=unit, confirmed_package_size=size, create_product=True,
                                   selling_price=record.sales_price, cost_price=record.purchase_price)
-        result["created"].append({**row, "unit": sp.proposed_unit, "on_sale": bool(record.sales_price and record.sales_price > 0)})
+        result["created"].append({**row, "unit": unit, "on_sale": bool(record.sales_price and record.sales_price > 0)})
     return result

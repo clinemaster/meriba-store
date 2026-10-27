@@ -2,10 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Alert, ConfirmToast, Field, PageTitle, Spinner, StatusBadge } from "@/components/ui";
+import { Alert, ConfirmToast, Field, PageTitle, Spinner, StatusBadge, StockBadge, useConfirm } from "@/components/ui";
 import { api, errorMessage, type Page } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useBackState } from "@/lib/backNav";
 import { formatDate, formatQty, formatTime } from "@/lib/money";
+import { useLiveReload } from "@/lib/stockLevels";
 import type { OpeningCount, Product, ShopSettings } from "@/lib/types";
 import { useLoad } from "@/lib/useLoad";
 
@@ -31,6 +33,7 @@ function OpeningCountSheet({ products, reloadProducts }: { products: Product[]; 
   const [filter, setFilter] = useState("");
   const [reviewNote, setReviewNote] = useState("");
   const [confirmApproval, setConfirmApproval] = useState(false);
+  const { confirm, confirmation, asking } = useConfirm();
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
@@ -172,10 +175,19 @@ function OpeningCountSheet({ products, reloadProducts }: { products: Product[]; 
                       run(() => api(`/stock/opening-counts/${pending.id}/review/`, { method: "POST", body: { approve: true, note: reviewNote } }), "Count sheet approved. The counted quantities are now stock.");
                     }} />
                 )}
-                <button className="btn-secondary" disabled={busy}
-                  onClick={() => run(() => api(`/stock/opening-counts/${pending.id}/review/`, { method: "POST", body: { approve: false, note: reviewNote } }), "Count sheet rejected. Start a new sheet for the recount.")}>
+                <button className="btn-secondary" disabled={busy || confirmApproval || asking}
+                  onClick={() => {
+                    if (reviewNote.trim().length < 3) return setProblem("Write in the note why the sheet is rejected, so it can be recounted.");
+                    setProblem(null);
+                    confirm({
+                      message: `Reject this count sheet of ${pending.lines.length} product(s)? Nothing becomes stock, and the products must be counted again on a new sheet.`,
+                      yes: "Yes, reject",
+                      run: () => run(() => api(`/stock/opening-counts/${pending.id}/review/`, { method: "POST", body: { approve: false, note: reviewNote } }), "Count sheet rejected. Start a new sheet for the recount."),
+                    });
+                  }}>
                   Reject for a recount
                 </button>
+                {confirmation}
               </div>
             </>
           ) : (
@@ -208,12 +220,14 @@ export default function StockPage() {
   const shop = useLoad<ShopSettings>("/settings/");
   const products = useLoad<Page<Product>>("/products/?page_size=500&active=true");
   const movements = useLoad<Page<Movement>>("/stock/movements/?page_size=30");
+  useLiveReload(() => { products.reload(); movements.reload(); });
   const [counts, setCounts] = useState<Record<number, string>>({});
   const [reason, setReason] = useState("");
-  const [filter, setFilter] = useState("");
+  const [filter, setFilter] = useBackState("filter", "");
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  const [confirmSave, setConfirmSave] = useState(false);
   const requestKey = useRef(crypto.randomUUID());
 
   const rows = useMemo(
@@ -222,10 +236,16 @@ export default function StockPage() {
   );
   const changed = Object.entries(counts).filter(([, v]) => v.trim() !== "" && Number.isFinite(Number(v)) && Number(v) >= 0);
 
-  async function save() {
+  function askToSave() {
     if (busy || changed.length === 0) return;
     if (reason.trim().length < 3) return setProblem("Write the reason for this stock change.");
-    if (!window.confirm(`Change the stock of ${changed.length} product(s) to the counted quantities? This is recorded under your name.`)) return;
+    setProblem(null);
+    setConfirmSave(true);
+  }
+
+  async function save() {
+    setConfirmSave(false);
+    if (busy || changed.length === 0) return;
     setBusy(true);
     setProblem(null);
     setSaved(null);
@@ -272,7 +292,7 @@ export default function StockPage() {
                   <tr key={p.id}>
                     <td><span className="font-semibold">{p.name}</span> {p.package_size}</td>
                     <td>{p.base_unit}</td>
-                    <td className="num">{formatQty(p.stock_on_hand)}</td>
+                    <td className="num"><StockBadge status={p.stock_status} quantity={p.stock_on_hand} /></td>
                     <td>
                       <input aria-label={`Quantity counted for ${p.name} ${p.package_size}`} className="input min-h-[2.5rem]" inputMode="numeric"
                         value={counts[p.id] ?? ""} onChange={(e) => setCounts((c) => ({ ...c, [p.id]: e.target.value.replace(/[^\d]/g, "") }))} />
@@ -284,9 +304,14 @@ export default function StockPage() {
           )}
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <button className="btn-primary" disabled={busy || changed.length === 0} onClick={save}>
+          <button className="btn-primary" disabled={busy || confirmSave || changed.length === 0} onClick={askToSave}>
             {busy ? "Saving…" : changed.length === 0 ? "Type a counted quantity to save" : `Save ${changed.length} counted quantit${changed.length === 1 ? "y" : "ies"}`}
           </button>
+          {confirmSave && (
+            <ConfirmToast
+              message={`Change the stock of ${changed.length} product(s) to the counted quantities? This is recorded under your name.`}
+              yes="Yes, change the stock" busy={busy} onNo={() => setConfirmSave(false)} onYes={save} />
+          )}
           <span className="text-sm text-slate-600">Rows you leave empty are not changed.</span>
         </div>
       </section>

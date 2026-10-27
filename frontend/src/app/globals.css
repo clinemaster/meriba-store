@@ -22,6 +22,13 @@
   .num { @apply text-right tabular-nums; }
 }
 
+/* Row under the pointer: highlighted in every table. */
+@media (hover: hover) {
+  tbody tr:hover > td,
+  tbody tr:hover > th { background-color: #fef3c7; }
+  tbody tr:hover > :first-child { box-shadow: inset 4px 0 0 #d97706; }
+}
+
 /* Printing a receipt: only the receipt itself goes to the printer. */
 @media print {
   body * { visibility: hidden; }

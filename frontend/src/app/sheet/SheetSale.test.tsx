@@ -6,7 +6,7 @@ import { SheetSale } from "./SheetSale";
 
 const line = { product: 7, details: "Konyagi ndogo 200ml", sales_price: "4500", closing_stock: "30" };
 const product = {
-  id: 7, sku: "P00007", name: "Konyagi ndogo", package_size: "200ml", pack_description: "", base_unit: "Bottle", barcode: "",
+  id: 7, sku: "P00007", name: "Konyagi ndogo", package_size: "200ml", pack_description: "", base_unit: "Bottle",
   category: null, category_name: "", brand: "", selling_price: "4500.00", is_active: true, stock_on_hand: "30.000", stock_status: "IN_STOCK",
   units: [{ id: 9, name: "Crate", factor: "12.000", selling_price: "50000.00", is_verified: true, is_active: true }],
 };

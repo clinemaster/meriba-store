@@ -2,11 +2,88 @@
 
 import Link from "next/link";
 
-import { Alert, Spinner, Stat, StatusBadge } from "@/components/ui";
+import { DashboardInsights } from "./DashboardInsights";
+
+import { StockValue, type StockValueStatement } from "@/components/StockValue";
+
+import { Alert, Spinner, Stat, StatusBadge, StockBadge } from "@/components/ui";
+import type { Page } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { formatDate, formatTZS } from "@/lib/money";
-import type { CurrentDay } from "@/lib/types";
+import { formatDate, formatQty, formatTZS } from "@/lib/money";
+import { STOCK_LEVELS, STOCK_ORDER, useLiveReload } from "@/lib/stockLevels";
+import type { CurrentDay, Product, StockLevelCounts } from "@/lib/types";
 import { useLoad } from "@/lib/useLoad";
+
+/** Owner/Accountant: the money value of the stock after the day's sales, kept up to date as sales are made. */
+function StockValueCard() {
+  const { data, reload } = useLoad<{ stock_value: StockValueStatement | null }>("/daily-sheet/stock-value/");
+  useLiveReload(reload);
+  const value = data?.stock_value;
+  if (!value) return null;
+  return (
+    <section aria-label="Stock value" className="card">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-xl font-bold">Stock value {value.source === "LIVE" ? "after today's sales" : `on ${formatDate(value.date)}`}</h2>
+        <Link href="/sheet" className="btn-secondary">Daily Sheet</Link>
+      </div>
+      <StockValue value={value} compact />
+    </section>
+  );
+}
+
+/** Owner/Accountant: how many products are at each stock level, and the ones that need attention, worst first. */
+function StockLevels() {
+  const levels = useLoad<StockLevelCounts>("/products/stock-levels/");
+  const list = useLoad<Page<Product>>("/products/?stock_status=ATTENTION&page_size=8");
+  useLiveReload(() => { levels.reload(); list.reload(); });
+  if (!levels.data) return null;
+  const counts = levels.data.counts;
+  return (
+    <section aria-label="Stock levels" className="card">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-xl font-bold">Stock levels</h2>
+        <Link href="/receive" className="btn-secondary">Receive Stock</Link>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {STOCK_ORDER.map((s) => (
+          <Link key={s} href={`/products?stock=${s}`} className={`rounded-lg border-2 p-4 hover:shadow-md focus-visible:outline focus-visible:outline-2 ${STOCK_LEVELS[s].tile}`}
+            aria-label={`${STOCK_LEVELS[s].label}: ${counts[s]} product${counts[s] === 1 ? "" : "s"}. Show them.`}>
+            <div className="flex items-center gap-2 text-sm font-semibold"><span aria-hidden>{STOCK_LEVELS[s].icon}</span>{STOCK_LEVELS[s].label}</div>
+            <div className="mt-1 text-3xl font-bold tabular-nums">{counts[s]}</div>
+            <div className="text-sm text-slate-700">product{counts[s] === 1 ? "" : "s"} on sale</div>
+          </Link>
+        ))}
+      </div>
+      {list.data && list.data.count > 0 && (
+        <div className="mt-5">
+          <h3 className="mb-2 font-bold">Needs attention <span className="font-semibold text-amber-800">({list.data.count})</span></h3>
+          <div className="overflow-x-auto"><table className="table">
+            <thead><tr><th>Product</th><th className="num">In stock</th><th className="num">Low at</th><th className="num">Critical at</th><th className="num">Suggested order</th></tr></thead>
+            <tbody>
+              {list.data.results.map((p) => {
+                const onHand = Number(p.stock_on_hand);
+                const target = Number(p.target_stock ?? 0);
+                const level = (v?: string) => (Number(v ?? 0) > 0 ? formatQty(v!) : "—");
+                return (
+                  <tr key={p.id}>
+                    <td className="font-semibold">{p.name} {p.package_size}</td>
+                    <td className="num"><StockBadge status={p.stock_status} quantity={p.stock_on_hand} /></td>
+                    <td className="num">{level(p.reorder_point)}</td>
+                    <td className="num">{level(p.critical_point)}</td>
+                    <td className="num">{target > onHand ? formatQty(String(target - onHand)) : "—"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table></div>
+          {list.data.count > list.data.results.length && (
+            <p className="mt-2 text-sm text-slate-600">Showing the {list.data.results.length} most urgent of {list.data.count}. <Link className="font-semibold underline" href="/products?stock=ATTENTION">See them all</Link></p>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
 
 export default function HomePage() {
   const { user } = useAuth();
@@ -80,7 +157,7 @@ export default function HomePage() {
           </div>
           {data.day_figures ? (
             <div className="grid gap-3 sm:grid-cols-3">
-              <Stat label="Opening cumulative sales" value={formatTZS(data.day_figures.opening_cumulative_sales)} note="Carried from the last closed day" />
+              <Stat label="Opening cumulative sales" value={formatTZS(data.day_figures.opening_cumulative_sales)} note={day?.opening_changes.length ? "Changed by the Owner" : "Carried from the last closed day"} />
               <Stat label="Net sales today (so far)" value={formatTZS(data.day_figures.net_sales)} note={`${data.day_figures.sale_count} sales`} strong />
               <Stat label="Cumulative sales (so far)" value={formatTZS(data.day_figures.closing_cumulative_sales)} note="Opening + today's net sales. Not cash." />
             </div>
@@ -98,6 +175,9 @@ export default function HomePage() {
           </div>
         </section>
       )}
+      {office && <StockValueCard />}
+      {office && <DashboardInsights today={data.today} />}
+      {office && <StockLevels />}
     </div>
   );
 }

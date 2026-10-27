@@ -13,7 +13,7 @@ from .conftest import client_for, sell, start_shift
 from .test_history import AUG31, SEP10, commit, line, primary, workbook
 
 D1, D2 = date(2026, 11, 2), date(2026, 11, 3)
-HEADINGS = ["S/N", "Details", "Opening stock", "Add Purchases", "Total stock", "Sales", "Closing stock", "Purchase price",
+HEADINGS = ["S/N", "Details", "Opening stock", "Add Purchases", "Sales", "Closing stock", "Purchase price",
             "Sales price", "Total Sales", "Profit", "Stock", "T.Purchases"]
 
 
@@ -131,8 +131,8 @@ def test_daily_sheet_export_uses_the_workbooks_headings(owner, cashier, shop, ma
     assert response.status_code == 200 and response["Content-Type"].startswith("text/csv")
     rows = response.content.decode("utf-8-sig").splitlines()
     assert rows[1] == ",".join(HEADINGS)
-    assert rows[2] == "1,Konyagi ndogo,434,0,434,35,399,3750,4500,157500,26250,1795500,0"  # identical to the workbook's 1 October line
-    assert rows[3] == ",TOTAL,,0,,35,,,,157500,26250,1795500,0"
+    assert rows[2] == "1,Konyagi ndogo,434,0,35,399,3750,4500,157500,26250,1795500,0"  # identical to the workbook's 1 October line
+    assert rows[3] == ",TOTAL,,0,35,,,,157500,26250,1795500,0"
 
 
 def test_the_cashier_types_sales_on_todays_sheet_without_seeing_costs(owner, cashier, shop, make_product, set_today):
@@ -143,7 +143,7 @@ def test_the_cashier_types_sales_on_todays_sheet_without_seeing_costs(owner, cas
     # typing 35 against the product on the sheet records an ordinary sale, with how it was paid
     sell(till, [(product, 35)], [(shop.momo, 157500)])
     data = get(till)
-    assert [c["label"] for c in data["columns"]] == ["S/N", "Details", "Opening stock", "Add Purchases", "Total stock", "Sales",
+    assert [c["label"] for c in data["columns"]] == ["S/N", "Details", "Opening stock",     "Add Purchases", "Sales",
                                                      "Closing stock", "Sales price", "Total Sales", "Stock"]
     row = data["lines"][0]
     assert (row["opening"], row["sales"], row["closing_stock"], row["sales_price"], row["total_sales"], row["stock"]) == (
@@ -186,3 +186,78 @@ def test_empty_profit_cells_stay_empty_and_are_flagged_for_the_owner(owner, acco
     assert log.actor == owner and log.reason == "Formula was not copied down" and "31.08.2026 row 5" in log.summary
     assert boss.post(url, {"approved_value": "9000", "reason": "Second thoughts"}, format="json").status_code == 409  # never replaced
     assert office.get("/api/v1/history/empty-profit-cells/").data["awaiting_review"] == 0
+
+
+def test_stock_total_falls_by_each_days_sales_and_carries_forward(owner, accountant, cashier, shop, make_product, set_today):
+    """The money value in the Stock column (Closing stock x Sales price, summed) goes down by Total Sales as sales are
+    recorded, a cancelled sale is given back once, and the closing value is the next day's starting value. Quantities
+    are worked out on their own; no money amount is ever taken off a quantity."""
+    a = make_product("Konyagi ndogo", "4500", 10000)  # 45,000,000 at selling price
+    b = make_product("Safari lager", "2500", 11091)   # 27,727,500 at selling price
+    till, office = client_for(cashier), client_for(accountant)
+    set_today(D1)
+    shift = start_shift(till)
+    assert get(office)["totals"]["stock"] == "72727500"
+
+    sell(till, [(a, 10)], [(shop.cash, 45000)])  # the example: a day's sales of TZS 45,000
+    day = get(office)
+    assert (day["totals"]["total_sales"], day["totals"]["stock"]) == ("45000", "72682500")  # 72,727,500 - 45,000
+    assert day["lines"][0]["closing_stock"] == "9990"  # a quantity, in bottles
+
+    wrong = sell(till, [(b, 2)], [(shop.cash, 5000)]).data
+    assert get(office)["totals"]["stock"] == "72677500"
+    office.post(f"/api/v1/sales/{wrong['id']}/void/", {"reason": "entered by mistake"}, format="json")
+    assert get(office)["totals"]["stock"] == "72682500"  # given back once, and only once
+    assert get(office)["totals"]["stock"] == "72682500"  # looking again changes nothing
+
+    till.post(f"/api/v1/shifts/{shift['id']}/close/", {"counted_cash": "45000"}, format="json")
+    set_today(D2)
+    start_shift(till)
+    assert get(office)["totals"]["stock"] == "72682500"  # yesterday's closing value is today's starting value
+    sell(till, [(b, 4)], [(shop.cash, 10000)])
+    assert get(office)["totals"]["stock"] == "72672500"
+    assert get(office, date=str(D1))["totals"]["stock"] == "72682500"  # the closed day is not touched
+
+
+def test_owner_sees_the_stock_value_after_each_days_sales(owner, accountant, cashier, shop, make_product, set_today):
+    """Yesterday's Stock total, less today's sales (with deliveries, returns and price changes shown on their own lines),
+    gives today's Stock total."""
+    a = make_product("Konyagi ndogo", "4500", 10000)
+    b = make_product("Castle laga ndogo", "37500", 20)  # 750,000
+    till, office, boss = client_for(cashier), client_for(accountant), client_for(owner)
+    set_today(D1)
+    shift = start_shift(till)
+    sell(till, [(a, 10)], [(shop.cash, 45000)])
+    first = office.get("/api/v1/daily-sheet/stock-value/").data["stock_value"]
+    assert (first["previous_value"], first["opening_value"], first["deliveries"], first["sales"], first["other"], first["closing_value"]) == (
+        None, "45750000", "0", "45000", "0", "45705000")  # 45,750,000 - 45,000
+    till.post(f"/api/v1/shifts/{shift['id']}/close/", {"counted_cash": "45000"}, format="json")
+
+    # Next day: 5 crates delivered and the same 5 sold (as on 16 Oct), and Konyagi goes up by 500.
+    boss.patch(f"/api/v1/products/{a.pk}/", {"selling_price": "5000"}, format="json")
+    set_today(D2)
+    start_shift(till)
+    office.post("/api/v1/stock/receipts/", {"request_key": str(uuid.uuid4()),
+                                            "lines": [{"product": b.pk, "quantity": "5", "unit_cost": "30000"}]}, format="json")
+    sell(till, [(b, 5)], [(shop.cash, 187500)])
+    day = get(office)
+    value = day["stock_value"]
+    assert (str(value["previous_date"]), value["previous_value"]) == (str(D1), "45705000")
+    assert value["price_changes"] == "4995000"  # 9,990 bottles x 500
+    assert (value["opening_value"], value["deliveries"], value["sales"], value["closing_value"]) == (
+        "50700000", "187500", "187500", "50700000")
+    assert value["closing_value"] == day["totals"]["stock"]  # always the sheet's own Stock total
+    assert get(client_for(cashier)).get("stock_value") is None  # the money statement is for the office
+    assert client_for(cashier).get("/api/v1/daily-sheet/stock-value/").status_code == 403
+
+
+def test_home_page_stock_value_falls_back_to_the_latest_day(owner, cashier, shop, make_product, set_today):
+    product = make_product("Konyagi ndogo", "4500", 100)
+    till = client_for(cashier)
+    set_today(D1)
+    shift = start_shift(till)
+    sell(till, [(product, 2)], [(shop.cash, 9000)])
+    till.post(f"/api/v1/shifts/{shift['id']}/close/", {"counted_cash": "9000"}, format="json")
+    set_today(D2)  # no day started yet
+    value = client_for(owner).get("/api/v1/daily-sheet/stock-value/").data["stock_value"]
+    assert (str(value["date"]), value["source"], value["sales"], value["closing_value"]) == (str(D1), "CLOSED", "9000", "441000")

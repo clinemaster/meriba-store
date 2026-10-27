@@ -37,6 +37,12 @@ const CASHIER: Topic[] = [
     "If it does not match, count again. If it is still different, write a short note.",
     "Press Review and Close, then Yes, close my shift.",
   ] },
+  { title: "Change your password", link: { href: "/change-password", label: "Change Password" }, steps: [
+    "Press Go to Change Password below.",
+    "Type your current password, then the new one twice. Use at least 8 characters.",
+    "Press Save new password. Do not share your password with anyone.",
+    "Forgotten it? Ask the Owner to set a new one; you will choose your own at your next sign-in.",
+  ] },
 ];
 
 const OFFICE: Topic[] = [

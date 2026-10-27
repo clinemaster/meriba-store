@@ -1,23 +1,35 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Receipt } from "@/components/Receipt";
+import { ShareReceipt } from "@/components/ShareReceipt";
+import { ColumnPicker } from "@/components/ColumnPicker";
+import { useBackState } from "@/lib/backNav";
+import type { ColumnDef } from "@/lib/columns";
+import { useColumnVisibility } from "@/lib/useColumnVisibility";
 import { RefundForm } from "@/components/RefundForm";
-import { Alert, Field, Modal, PageTitle, Spinner, StatusBadge } from "@/components/ui";
+import { Alert, Field, Modal, PageTitle, Spinner, StatusBadge, useConfirm } from "@/components/ui";
 import { api, errorMessage, type Page } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { formatDate, formatTime, formatTZS } from "@/lib/money";
 import type { CurrentDay, Sale, ShopSettings } from "@/lib/types";
 import { useLoad } from "@/lib/useLoad";
 
+const COLUMNS: ColumnDef[] = [
+  { key: "time", label: "Time" }, { key: "receipt", label: "Receipt", essential: true }, { key: "cashier", label: "Cashier" },
+  { key: "paid", label: "Paid by" }, { key: "total", label: "Total" }, { key: "status", label: "Status" },
+];
+
 export default function SalesPage() {
   const { user } = useAuth();
   const office = user?.role !== "CASHIER";
+  const defs = useMemo(() => COLUMNS.filter((c) => office || c.key !== "cashier"), [office]);
+  const cols = useColumnVisibility("sales", defs);
   const current = useLoad<CurrentDay>("/day/current/");
   const shop = useLoad<ShopSettings>("/settings/");
-  const [pickedDate, setPickedDate] = useState("");
-  const [page, setPage] = useState(1);
+  const [pickedDate, setPickedDate] = useBackState("pickedDate", "");
+  const [page, setPage] = useBackState("page", 1);
   const date = pickedDate || current.data?.day?.date || current.data?.today || "";
   const sales = useLoad<Page<Sale>>(date ? `/sales/?date=${date}&page=${page}` : null);
   const [open, setOpen] = useState<Sale | null>(null);
@@ -26,6 +38,7 @@ export default function SalesPage() {
   const [reason, setReason] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const { confirm, confirmation, asking } = useConfirm();
 
   function close() {
     setOpen(null);
@@ -35,9 +48,18 @@ export default function SalesPage() {
     setProblem(null);
   }
 
-  async function cancelSale() {
+  function askToCancel() {
     if (!open || busy) return;
     if (reason.trim().length < 5) return setProblem("Write the reason for cancelling this sale.");
+    setProblem(null);
+    confirm({
+      message: `Cancel sale ${open.receipt_number} of ${formatTZS(open.total)}? The items go back into stock and this cannot be undone.`,
+      yes: "Yes, cancel this sale", run: cancelSale,
+    });
+  }
+
+  async function cancelSale() {
+    if (!open || busy) return;
     setBusy(true);
     try {
       const updated = await api<Sale>(`/sales/${open.id}/void/`, { method: "POST", body: { reason } });
@@ -67,22 +89,27 @@ export default function SalesPage() {
         }
       />
       <div className="card overflow-x-auto">
+        {rows.length > 0 && <div className="mb-3 flex justify-end"><ColumnPicker visibility={cols} /></div>}
         {sales.loading && !sales.data ? <Spinner /> : sales.error ? <Alert kind="error">{sales.error}</Alert> : rows.length === 0 ? (
           <p className="p-4 text-slate-600">No sales recorded for {formatDate(date)}.</p>
         ) : (
           <table className="table">
             <thead>
-              <tr><th>Time</th><th>Receipt</th>{office && <th>Cashier</th>}<th>Paid by</th><th className="num">Total</th><th>Status</th><th><span className="sr-only">Actions</span></th></tr>
+              <tr>
+                {cols.show("time") && <th>Time</th>}<th>Receipt</th>{office && cols.show("cashier") && <th>Cashier</th>}
+                {cols.show("paid") && <th>Paid by</th>}{cols.show("total") && <th className="num">Total</th>}{cols.show("status") && <th>Status</th>}
+                <th><span className="sr-only">Actions</span></th>
+              </tr>
             </thead>
             <tbody>
               {rows.map((s) => (
                 <tr key={s.id} className={s.status === "VOIDED" ? "text-slate-500" : ""}>
-                  <td>{formatTime(s.created_at)}</td>
+                  {cols.show("time") && <td>{formatTime(s.created_at)}</td>}
                   <td className="font-mono">{s.receipt_number}</td>
-                  {office && <td>{s.cashier_name}</td>}
-                  <td>{s.payments.map((p) => p.method_name).join(" + ")}</td>
-                  <td className={`num font-semibold ${s.status === "VOIDED" ? "line-through" : ""}`}>{formatTZS(s.total)}</td>
-                  <td><StatusBadge status={s.status} label={s.status_label} /></td>
+                  {office && cols.show("cashier") && <td>{s.cashier_name}</td>}
+                  {cols.show("paid") && <td>{s.payments.map((p) => p.method_name).join(" + ")}</td>}
+                  {cols.show("total") && <td className={`num font-semibold ${s.status === "VOIDED" ? "line-through" : ""}`}>{formatTZS(s.total)}</td>}
+                  {cols.show("status") && <td><StatusBadge status={s.status} label={s.status_label} /></td>}
                   <td className="text-right"><button className="btn-secondary min-h-[2.5rem]" onClick={() => setOpen(s)}>View</button></td>
                 </tr>
               ))}
@@ -109,7 +136,7 @@ export default function SalesPage() {
           <Receipt sale={open} shop={shop.data} />
           {problem && <div className="no-print mt-3"><Alert kind="error">{problem}</Alert></div>}
           {refunding ? (
-            <RefundForm sale={open} onCancel={() => setRefunding(false)} onDone={(updated) => { setOpen(updated); setRefunding(false); sales.reload(); }} />
+            <RefundForm sale={open} current={current.data} onCancel={() => setRefunding(false)} onDone={(updated) => { setOpen(updated); setRefunding(false); sales.reload(); }} />
           ) : voiding ? (
             <div className="no-print mt-4 space-y-3">
               <Alert kind="warning">Cancelling puts the items back into stock and removes {formatTZS(open.total)} from today&apos;s sales. The sale stays on record as cancelled. This cannot be undone.</Alert>
@@ -117,13 +144,14 @@ export default function SalesPage() {
                 {(p) => <input {...p} className="input" value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} autoFocus />}
               </Field>
               <div className="flex gap-3">
-                <button className="btn-danger" disabled={busy} onClick={cancelSale}>{busy ? "Cancelling…" : "Yes, cancel this sale"}</button>
+                <button className="btn-danger" disabled={busy || asking} onClick={askToCancel}>{busy ? "Cancelling…" : "Cancel this sale"}</button>
                 <button className="btn-secondary" onClick={() => setVoiding(false)}>Keep the sale</button>
               </div>
             </div>
           ) : (
             <div className="no-print mt-4 flex flex-wrap gap-3">
               <button className="btn-primary" onClick={() => window.print()}>Print Receipt</button>
+              {open.status === "COMPLETED" && <ShareReceipt sale={open} shop={shop.data} />}
               <button className="btn-secondary" onClick={close}>Close</button>
               {office && open.status === "COMPLETED" && (
                 <span className="ml-auto flex gap-2">
@@ -135,6 +163,7 @@ export default function SalesPage() {
           )}
         </Modal>
       )}
+      {confirmation}
     </div>
   );
 }

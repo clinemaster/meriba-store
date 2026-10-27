@@ -174,10 +174,9 @@ def test_adjustment_records_who_when_why_and_keeps_history(accountant, shop, mak
 def test_product_rules(owner, make_product):
     client = client_for(owner)
     created = client.post("/api/v1/products/", {"name": "  Konyagi   ndogo ", "selling_price": "4500", "base_unit": "Bottle",
-                                                "package_size": "200ml", "barcode": "600123"}, format="json")
+                                                "package_size": "200ml"}, format="json")
     assert created.status_code == 201 and created.data["name"] == "Konyagi ndogo" and created.data["sku"].startswith("P")
-    dup = client.post("/api/v1/products/", {"name": "Other", "selling_price": "1", "barcode": "600123"}, format="json")
-    assert dup.status_code == 400 and "barcode" in dup.data["errors"]
+    assert "barcode" not in created.data  # barcodes were removed (owner's decision, 21 Oct 2026)
     assert client.post("/api/v1/products/", {"name": "Bad", "selling_price": "-5"}, format="json").status_code == 400
     pk = created.data["id"]
     assert client.patch(f"/api/v1/products/{pk}/", {"selling_price": "5000"}, format="json").status_code == 200
@@ -188,13 +187,46 @@ def test_product_rules(owner, make_product):
     assert Product.objects.filter(pk=pk).exists()
 
 
-def test_search_by_name_code_and_barcode(cashier, make_product):
-    make_product("Konyagi ndogo", package_size="200ml", barcode="111")
+def test_search_by_name_code_and_size(cashier, make_product):
+    konyagi = make_product("Konyagi ndogo", package_size="200ml")
     make_product("Konyagi kubwa", package_size="750ml")
     make_product("Serengeti", is_active=False)
     client = client_for(cashier)
     names = lambda q: [p["name"] for p in client.get(f"/api/v1/products/?search={q}").data["results"]]
     assert names("konyagi") == ["Konyagi kubwa", "Konyagi ndogo"]
     assert names("kony 750") == ["Konyagi kubwa"]
-    assert names("111") == ["Konyagi ndogo"]
+    assert names(konyagi.sku) == ["Konyagi ndogo"]
     assert names("serengeti") == []  # products that are switched off are not offered to cashiers
+
+
+def test_opening_count_list_query_count_does_not_grow_with_sheets(owner, shop, make_product):
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    not_live(shop)
+    boss, product = client_for(owner), make_product("A")
+
+    def add_rejected_sheet():
+        sheet = boss.post("/api/v1/stock/opening-counts/", sheet_payload([(product, 3)]), format="json").data["id"]
+        boss.post(f"/api/v1/stock/opening-counts/{sheet}/review/", {"approve": False, "note": "Recount"}, format="json")
+
+    def queries():
+        with CaptureQueriesContext(connection) as ctx:
+            assert boss.get("/api/v1/stock/opening-counts/").status_code == 200
+        return len(ctx)
+
+    add_rejected_sheet()
+    one = queries()
+    for _ in range(4):
+        add_rejected_sheet()
+    assert queries() == one
+
+
+def test_branch_is_looked_up_once_per_request(owner, shop):
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    boss = client_for(owner)
+    with CaptureQueriesContext(connection) as ctx:
+        assert boss.get("/api/v1/day/current/").status_code == 200
+    assert sum('FROM "core_branch"' in q["sql"] for q in ctx) <= 1

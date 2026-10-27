@@ -4,12 +4,13 @@ from decimal import Decimal
 from django.db import transaction
 from django.utils import timezone
 
-from catalog import costing
+from catalog import costing, stock_levels
 from core.errors import BusinessRuleError
 from core.models import BusinessSettings
 from core.services import audit, get_branch, local_today
 
-from .models import InventoryMovement, OpeningCount, OpeningCountLine, StockAdjustment, StockAdjustmentLine, StockBalance
+from .models import (InventoryMovement, OpeningCount, OpeningCountLine, StockAdjustment, StockAdjustmentLine, StockAlert,
+                     StockBalance)
 
 
 def current_business_date(branch):
@@ -42,7 +43,17 @@ def post_movement(*, branch, product, delta, movement_type, source_type, source_
     )
     balance.quantity = after
     balance.save(update_fields=["quantity", "updated_at"])
+    _alert_if_worse(movement, product)
     return movement
+
+
+def _alert_if_worse(movement, product):
+    """Record a stock alert when this movement took the product to a worse stock level."""
+    before = stock_levels.stock_status(movement.balance_before, product.reorder_point, product.critical_point)
+    after = stock_levels.stock_status(movement.balance_after, product.reorder_point, product.critical_point)
+    if stock_levels.severity(after) > stock_levels.severity(before):
+        StockAlert.objects.create(branch=movement.branch, product=product, movement=movement,
+                                  status_before=before, status_after=after, quantity=movement.balance_after)
 
 
 @transaction.atomic

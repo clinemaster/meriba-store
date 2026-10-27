@@ -21,12 +21,21 @@ def _figures_json(figures: dict) -> dict:
 class DaySerializer(serializers.ModelSerializer):
     status_label = serializers.CharField(source="get_status_display", read_only=True)
     corrections = serializers.SerializerMethodField()
+    opening_changes = serializers.SerializerMethodField()
 
     class Meta:
         model = BusinessDay
         fields = [
             "id", "date", "status", "status_label", "opening_cumulative_sales", "gross_sales", "discounts", "voids",
             "refunds", "adjustments", "net_sales", "closing_cumulative_sales", "opened_at", "closed_at", "corrections",
+            "opening_changes",
+        ]
+
+    def get_opening_changes(self, obj) -> list:
+        return [
+            {"id": c.pk, "opening_before": str(c.opening_before), "opening_after": str(c.opening_after),
+             "reason": c.reason, "created_at": c.created_at, "authorised_by": c.authorised_by.display_name}
+            for c in obj.opening_changes.select_related("authorised_by")
         ]
 
     def get_corrections(self, obj) -> list:
@@ -99,6 +108,9 @@ class CurrentDayView(APIView):
 
 class StartDaySerializer(serializers.Serializer):
     opening_float = serializers.DecimalField(max_digits=14, decimal_places=2, min_value=0, default=0)
+    # Owner only, when this opens the day: a different opening cumulative sales balance, with the reason.
+    opening_cumulative_sales = serializers.DecimalField(max_digits=16, decimal_places=2, min_value=0, required=False, allow_null=True)
+    opening_reason = serializers.CharField(max_length=500, required=False, allow_blank=True, default="")
 
 
 class StartDayView(APIView):
@@ -108,8 +120,32 @@ class StartDayView(APIView):
     def post(self, request):
         ser = StartDaySerializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        shift, created = services.start_day(user=request.user, opening_float=ser.validated_data["opening_float"])
+        data = ser.validated_data
+        shift, created = services.start_day(
+            user=request.user, opening_float=data["opening_float"],
+            opening_cumulative_sales=data.get("opening_cumulative_sales"), opening_reason=data["opening_reason"],
+        )
         return Response(ShiftSerializer(shift).data, status=201 if created else 200)
+
+
+class ChangeFloatSerializer(serializers.Serializer):
+    opening_float = serializers.DecimalField(max_digits=14, decimal_places=2, min_value=0)
+    reason = serializers.CharField(max_length=500)
+
+
+class ShiftFloatView(APIView):
+    """Owner only: change the cash float of a shift that is still open. Audited with the reason."""
+
+    permission_classes = [IsOwner]
+
+    @extend_schema(request=ChangeFloatSerializer, responses=ShiftSerializer)
+    def post(self, request, pk):
+        ser = ChangeFloatSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        shift = services.change_shift_float(
+            shift_id=pk, owner=request.user, opening_float=ser.validated_data["opening_float"], reason=ser.validated_data["reason"]
+        )
+        return Response(ShiftSerializer(shift).data)
 
 
 class CloseShiftSerializer(serializers.Serializer):
@@ -235,3 +271,23 @@ class DayCorrectionView(APIView):
             request_key=data["request_key"], sale=sale,
         )
         return Response(DaySerializer(correction.business_day).data, status=201 if created else 200)
+
+
+class OpeningBalanceSerializer(serializers.Serializer):
+    opening_cumulative_sales = serializers.DecimalField(max_digits=16, decimal_places=2, min_value=0)
+    reason = serializers.CharField(max_length=500)
+
+
+class DayOpeningBalanceView(APIView):
+    """Owner only: change the open day's opening cumulative sales balance. Kept as a record and audited."""
+
+    permission_classes = [IsOwner]
+
+    @extend_schema(request=OpeningBalanceSerializer, responses={200: DaySerializer})
+    def post(self, request, pk):
+        ser = OpeningBalanceSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        change = services.change_opening_balance(
+            day_id=pk, owner=request.user, amount=ser.validated_data["opening_cumulative_sales"], reason=ser.validated_data["reason"]
+        )
+        return Response(DaySerializer(change.business_day).data)

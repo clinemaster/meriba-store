@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from "react";
 
-import { Alert, Field, Modal, PageTitle, Spinner, Stat, StatusBadge } from "@/components/ui";
+import { Alert, Field, Modal, PageTitle, Spinner, Stat, StatusBadge, useConfirm } from "@/components/ui";
 import { api, errorMessage, type Page } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useBackState } from "@/lib/backNav";
 import { formatDate, formatQty, formatTZS } from "@/lib/money";
 import type { Product } from "@/lib/types";
 import { useLoad } from "@/lib/useLoad";
@@ -65,6 +66,7 @@ function Overview({ board, reload, isOwner }: { board: Dashboard; reload: () => 
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const { confirm: ask, confirmation, asking } = useConfirm();
 
   async function downloadPreviewReport() {
     if (!file || busy) return;
@@ -140,12 +142,17 @@ function Overview({ board, reload, isOwner }: { board: Dashboard; reload: () => 
             <div className="space-y-2 rounded-lg border-2 border-brand-600 p-4">
               <p className="font-semibold">Everything has been reviewed. You can now accept the historical data as reconciled.</p>
               <Field label="On what basis do you accept it?">{(p) => <input {...p} className="input" maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} />}</Field>
-              <button className="btn-primary" disabled={busy || note.trim().length < 10}
-                onClick={async () => { try { await api("/history/accept/", { method: "POST", body: { note } }); reload(); } catch (err) { setProblem(errorMessage(err)); } }}>
+              <button className="btn-primary" disabled={busy || asking || note.trim().length < 10}
+                onClick={() => ask({
+                  message: "Accept the historical data as reconciled? This is recorded under your name. Any later import or reopened decision withdraws it.",
+                  yes: "Yes, accept",
+                  run: async () => { try { await api("/history/accept/", { method: "POST", body: { note } }); reload(); } catch (err) { setProblem(errorMessage(err)); } },
+                })}>
                 Accept as reconciled
               </button>
             </div>
           )}
+          {confirmation}
         </section>
       )}
 
@@ -205,7 +212,7 @@ function Overview({ board, reload, isOwner }: { board: Dashboard; reload: () => 
 }
 
 function Exceptions({ isOwner, onChange }: { isOwner: boolean; onChange: () => void }) {
-  const [status, setStatus] = useState("PENDING_REVIEW");
+  const [status, setStatus] = useBackState("exceptions.status", "PENDING_REVIEW");
   const list = useLoad<Page<Item>>(`/history/review-items/?page_size=200${status ? `&status=${status}` : ""}`);
   const [open, setOpen] = useState<Item | null>(null);
   const [resolution, setResolution] = useState("");
@@ -215,6 +222,7 @@ function Exceptions({ isOwner, onChange }: { isOwner: boolean; onChange: () => v
   const [newNote, setNewNote] = useState({ text: "", evidence: "", source: "" });
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const { confirm, confirmation, asking } = useConfirm();
 
   function show(item: Item) {
     setOpen(item); setResolution(""); setNote(""); setEvidence(""); setExtra({}); setProblem(null); setNewNote({ text: "", evidence: "", source: "" });
@@ -330,7 +338,12 @@ function Exceptions({ isOwner, onChange }: { isOwner: boolean; onChange: () => v
           {open.status !== "PENDING_REVIEW" ? (
             <div className="mt-4 space-y-2">
               <Alert kind="success">{open.resolution_label} — {open.decided_by_name}{open.decided_at ? `, ${formatDate(open.decided_at)}` : ""}. {open.note}{open.evidence_reference && ` Evidence: ${open.evidence_reference}.`}</Alert>
-              {isOwner && <button className="btn-secondary" disabled={busy} onClick={() => { const reason = window.prompt("Why is this decision being reopened?"); if (reason) act(() => api<Item>(`/history/review-items/${open.id}/reopen/`, { method: "POST", body: { reason } })); }}>Reopen this decision…</button>}
+              {isOwner && <button className="btn-secondary" disabled={busy || asking} onClick={() => confirm({
+                message: "Reopen this decision? It goes back to waiting for review, and the history stops counting as reconciled until it is decided again.",
+                yes: "Yes, reopen", input: { label: "Why is this decision being reopened?" },
+                run: (reason) => act(() => api<Item>(`/history/review-items/${open.id}/reopen/`, { method: "POST", body: { reason } })),
+              })}>Reopen this decision…</button>}
+              {confirmation}
             </div>
           ) : !mayDecide ? (
             <div className="mt-4"><Alert kind="info">Only the Owner can decide on product identity and prices. You can add an explanation above for the Owner.</Alert></div>
@@ -370,8 +383,8 @@ function Exceptions({ isOwner, onChange }: { isOwner: boolean; onChange: () => v
 }
 
 function Mapping({ isOwner, onChange }: { isOwner: boolean; onChange: () => void }) {
-  const [status, setStatus] = useState("PENDING_REVIEW");
-  const [search, setSearch] = useState("");
+  const [status, setStatus] = useBackState("mapping.status", "PENDING_REVIEW");
+  const [search, setSearch] = useBackState("mapping.search", "");
   const list = useLoad<Page<SourceProduct>>(`/history/source-products/?page_size=300${status ? `&status=${status}` : ""}${search ? `&search=${encodeURIComponent(search)}` : ""}`);
   const live = useLoad<Page<Product>>("/products/?page_size=500");
   const [open, setOpen] = useState<SourceProduct | null>(null);
@@ -556,10 +569,10 @@ function UnlabelledRows({ onChange }: { onChange: () => void }) {
 }
 
 function Records() {
-  const [date, setDate] = useState("");
-  const [search, setSearch] = useState("");
-  const [incomplete, setIncomplete] = useState(false);
-  const [page, setPage] = useState(1);
+  const [date, setDate] = useBackState("records.date", "");
+  const [search, setSearch] = useBackState("records.search", "");
+  const [incomplete, setIncomplete] = useBackState("records.incomplete", false);
+  const [page, setPage] = useBackState("records.page", 1);
   const list = useLoad<Page<HistRecord>>(`/history/records/?page=${page}&page_size=50${date ? `&date=${date}` : ""}${search ? `&search=${encodeURIComponent(search)}` : ""}${incomplete ? "&incomplete=true" : ""}`);
   const pages = Math.max(1, Math.ceil((list.data?.count ?? 0) / 50));
   return (
@@ -603,7 +616,7 @@ export default function HistoryPage() {
   const { user } = useAuth();
   const isOwner = user?.role === "OWNER";
   const board = useLoad<Dashboard>("/history/dashboard/");
-  const [tab, setTab] = useState<(typeof TABS)[number][0]>("overview");
+  const [tab, setTab] = useBackState<(typeof TABS)[number][0]>("tab", "overview");
   if (board.loading && !board.data) return <Spinner />;
   if (board.error || !board.data) return <Alert kind="error">{board.error}</Alert>;
   const counts: Record<string, number> = { exceptions: board.data.blockers.exceptions, mapping: board.data.blockers.product_mappings, rows: board.data.blockers.unlabelled_rows };

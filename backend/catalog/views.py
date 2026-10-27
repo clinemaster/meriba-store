@@ -2,7 +2,7 @@ import csv
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import DecimalField, OuterRef, Q, Subquery, Value
+from django.db.models import Case, Count, DecimalField, F, IntegerField, OuterRef, Q, Subquery, Value, When
 from django.db.models.functions import Coalesce
 from django.http import HttpResponse
 from drf_spectacular.utils import extend_schema
@@ -16,7 +16,7 @@ from core.models import AuditLog
 from core.services import audit, get_branch, money
 from inventory.models import InventoryMovement, StockBalance
 
-from . import table
+from . import stock_levels, table
 from .models import Category, Product, ProductUnit, SoldBy
 
 
@@ -34,14 +34,6 @@ class ProductUnitSerializer(serializers.ModelSerializer):
         extra_kwargs = {"selling_price": {"min_value": 0}, "factor": {"min_value": 1}}
 
 
-def stock_status(quantity: Decimal, reorder_point: Decimal) -> str:
-    if quantity <= 0:
-        return "OUT_OF_STOCK"
-    if reorder_point > 0 and quantity <= reorder_point:
-        return "LOW_STOCK"
-    return "IN_STOCK"
-
-
 class ProductSaleSerializer(serializers.ModelSerializer):
     """What a cashier may see: no purchase price, no cost, no profit, no thresholds."""
 
@@ -54,12 +46,12 @@ class ProductSaleSerializer(serializers.ModelSerializer):
         model = Product
         fields = [
             "id", "sku", "name", "category", "category_name", "brand", "package_size", "pack_description",
-            "base_unit", "volume_ml", "bottles_per_unit", "barcode", "selling_price", "is_active", "stock_on_hand",
+            "base_unit", "volume_ml", "bottles_per_unit", "selling_price", "is_active", "stock_on_hand",
             "stock_status", "units",
         ]
 
     def get_stock_status(self, obj) -> str:
-        return stock_status(getattr(obj, "stock_on_hand", Decimal("0")), obj.reorder_point)
+        return stock_levels.stock_status(getattr(obj, "stock_on_hand", Decimal("0")), obj.reorder_point, obj.critical_point)
 
     def get_units(self, obj) -> list:
         units = [u for u in obj.units.all() if u.is_active and u.is_verified]
@@ -71,10 +63,10 @@ class ProductManageSerializer(ProductSaleSerializer):
 
     class Meta(ProductSaleSerializer.Meta):
         fields = ProductSaleSerializer.Meta.fields + ["cost_price", "average_cost", "cost_provisional", "reorder_point",
-                                                      "target_stock", "created_at", "updated_at"]
+                                                      "critical_point", "target_stock", "created_at", "updated_at"]
         read_only_fields = ["average_cost", "cost_provisional"]  # worked out by the system from deliveries
         extra_kwargs = {
-            **{name: {"min_value": 0} for name in ("selling_price", "cost_price", "reorder_point", "target_stock")},
+            **{name: {"min_value": 0} for name in ("selling_price", "cost_price", "reorder_point", "critical_point", "target_stock")},
             "volume_ml": {"min_value": 1, "max_value": 100000},
             "bottles_per_unit": {"min_value": 1, "max_value": 10000},
             "base_unit": {"error_messages": {"invalid_choice": "Choose one of: " + ", ".join(SoldBy.values) + "."}},
@@ -98,15 +90,6 @@ class ProductManageSerializer(ProductSaleSerializer):
             raise serializers.ValidationError("Another product already uses this code.")
         return value
 
-    def validate_barcode(self, value):
-        value = value.strip()
-        qs = Product.objects.filter(barcode=value)
-        if self.instance:
-            qs = qs.exclude(pk=self.instance.pk)
-        if value and qs.exists():
-            raise serializers.ValidationError("Another product already uses this barcode.")
-        return value
-
     def validate_selling_price(self, value):
         return money(value)
 
@@ -119,6 +102,17 @@ class ProductManageSerializer(ProductSaleSerializer):
             raise serializers.ValidationError({"selling_price": [
                 "Enter the selling price. A product cannot be on sale without one. "
                 "To keep it without a price for now, untick “On sale”."
+            ]})
+
+        low = attrs.get("reorder_point", getattr(current, "reorder_point", Decimal("0")))
+        critical = attrs.get("critical_point", getattr(current, "critical_point", Decimal("0")))
+        if critical > 0 and low <= 0:
+            raise serializers.ValidationError({"critical_point": [
+                "Set the low-stock warning level first. The critical level must be lower than it."
+            ]})
+        if critical > 0 and critical >= low:
+            raise serializers.ValidationError({"critical_point": [
+                f"The critical level must be lower than the low-stock warning level ({_plain(low)})."
             ]})
 
         sold_by = attrs.get("base_unit", getattr(current, "base_unit", SoldBy.BOTTLE))
@@ -162,8 +156,8 @@ class CategoryViewSet(viewsets.ModelViewSet):
         return [IsSignedIn()] if self.action in ("list", "retrieve") else [IsOwnerOrAccountant()]
 
 
-AUDITED_FIELDS = ["name", "sku", "selling_price", "cost_price", "is_active", "barcode", "base_unit", "volume_ml",
-                  "bottles_per_unit", "reorder_point", "target_stock"]
+AUDITED_FIELDS = ["name", "sku", "selling_price", "cost_price", "is_active", "base_unit", "volume_ml",
+                  "bottles_per_unit", "reorder_point", "critical_point", "target_stock"]
 PLAIN = (Decimal,)
 
 
@@ -213,10 +207,32 @@ class ProductViewSet(viewsets.ModelViewSet):
             for word in search.split():
                 cond &= (Q(name__icontains=word) | Q(sku__icontains=word) | Q(package_size__icontains=word)
                          | Q(category__name__icontains=word) | Q(brand__icontains=word))
-            qs = qs.filter(cond | Q(barcode=search))
+            qs = qs.filter(cond)
         if params.get("category"):
             qs = qs.filter(category_id=params["category"])
+        # Back office only: products at or below their reorder point (products with no reorder point set are left out).
+        if params.get("low_stock") == "true" and getattr(self.request.user, "is_back_office", False):
+            qs = qs.filter(is_active=True, reorder_point__gt=0, stock_on_hand__lte=F("reorder_point")).order_by("stock_on_hand", "name")
+        # Back office only: products at the chosen stock levels, worst first (e.g. ?stock_status=ATTENTION).
+        wanted = stock_levels.parse_statuses(params.get("stock_status"))
+        if wanted and getattr(self.request.user, "is_back_office", False):
+            worst_first = Case(*[When(stock_level=s, then=Value(-stock_levels.severity(s))) for s in stock_levels.ORDER],
+                               output_field=IntegerField())
+            qs = (qs.filter(is_active=True).annotate(stock_level=stock_levels.status_expression())
+                  .filter(stock_level__in=wanted).order_by(worst_first, "stock_on_hand", "name"))
         return qs
+
+    @extend_schema(responses={200: dict})
+    @action(detail=False, url_path="stock-levels")
+    def stock_level_counts(self, request):
+        """How many products on sale are at each stock level, for the dashboard. Back office only."""
+        counts = dict(self.get_queryset().filter(is_active=True).annotate(stock_level=stock_levels.status_expression())
+                      .order_by().values("stock_level").annotate(n=Count("id")).values_list("stock_level", "n"))
+        return Response({
+            "counts": {s: counts.get(s, 0) for s in stock_levels.ORDER},
+            "labels": stock_levels.LABELS,
+            "total": sum(counts.values()),
+        })
 
     @transaction.atomic
     def perform_create(self, serializer):
@@ -247,8 +263,11 @@ class ProductViewSet(viewsets.ModelViewSet):
     def table(self, request):
         """Stock, sales and gross profit per product for a business day or date range. Back office only."""
         start, end = table.period(request.query_params)
-        rows = table.sort_rows(table.rows_for(table.base_queryset(request.query_params), start, end),
-                               request.query_params.get("ordering", "serial_number"))
+        rows = table.rows_for(table.base_queryset(request.query_params), start, end)
+        wanted = stock_levels.parse_statuses(request.query_params.get("stock_status"))
+        if wanted:
+            rows = [r for r in rows if r["stock_status"] in wanted]
+        rows = table.sort_rows(rows, request.query_params.get("ordering", "serial_number"))
         summary = table.totals(rows)
 
         if request.query_params.get("download") == "csv":
@@ -257,7 +276,7 @@ class ProductViewSet(viewsets.ModelViewSet):
             response.write("﻿")
             writer = csv.writer(response)
             writer.writerow(["MERIBA product table", f"{start} to {end}"])
-            writer.writerow(["S/No", "Product", "Unit", "Volume (ml)", "Total Stock", "Closing Stock", "Purchase Price",
+            writer.writerow(["S/No", "Product", "Unit", "Volume (ml)", "Closing Stock", "Purchase Price",
                              "Selling Price", "Total Sales", "Profit", "Stock on Hand", "Notes"])
             for r in rows:
                 notes = []
@@ -267,11 +286,11 @@ class ProductViewSet(viewsets.ModelViewSet):
                     notes.append("Provisional: rests on an assumed purchase cost")
                 if not r["is_active"]:
                     notes.append("Not on sale")
-                writer.writerow([r["serial_number"] or "", r["name"], r["sold_by"], r["volume_ml"] or "", _plain(r["total_item_stock"]),
+                writer.writerow([r["serial_number"] or "", r["name"], r["sold_by"], r["volume_ml"] or "",
                                  _plain(r["closing_stock"]), "" if r["purchase_price"] is None else _plain(r["purchase_price"].quantize(Decimal("0.01"))),
                                  _plain(r["selling_price"]), _plain(r["total_sales"]), "" if r["profit"] is None else _plain(r["profit"]),
                                  _plain(r["stock"]), "; ".join(notes)])
-            writer.writerow(["", "TOTAL", "", "", "", "", "", "", _plain(summary["total_sales"]), _plain(summary["profit"]), "",
+            writer.writerow(["", "TOTAL", "", "", "", "", "", _plain(summary["total_sales"]), _plain(summary["profit"]), "",
                              f"Profit not available for {summary['profit_unavailable_for']} product(s)" if summary["profit_unavailable_for"] else ""])
             audit(request.user, "report.exported", summary=f"Exported the product table {start} to {end}")
             return response

@@ -185,3 +185,17 @@ def test_user_can_change_own_password(cashier):
     cashier.refresh_from_db()
     assert cashier.check_password("Another-Good-77")
     assert client.get("/api/v1/auth/me/").status_code == 200  # still signed in
+
+
+def test_audit_log_names_products_and_status_codes_for_the_details_view(owner, make_product):
+    from core.services import audit
+    from core.views import _status_labels
+    from trading.models import CashierShift
+
+    henken = make_product("Henken ndogo", package_size="330ml")
+    audit(owner, "stock.adjusted", henken, after={"quantities": {str(henken.pk): "5.000"}, "product": henken.pk})
+    entry = client_for(owner).get("/api/v1/audit-log/?action=stock.adjusted").data["results"][0]
+    assert entry["product_names"] == {str(henken.pk): "Henken ndogo 330ml"}
+    assert entry["status_labels"] == {}  # a product has no status
+    assert _status_labels("CashierShift")["PENDING"] == CashierShift.Status.PENDING.label
+    assert _status_labels("NoSuchModel") == {}

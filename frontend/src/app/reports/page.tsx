@@ -1,10 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { Alert, Field, PageTitle, Spinner } from "@/components/ui";
+import { Alert, Field, PageTitle, Spinner, StockBadge } from "@/components/ui";
+import { ColumnPicker } from "@/components/ColumnPicker";
+import { useBackState } from "@/lib/backNav";
+import type { ColumnDef } from "@/lib/columns";
+import { useColumnVisibility } from "@/lib/useColumnVisibility";
 import { formatDate, formatQty, formatTZS } from "@/lib/money";
+import { STOCK_LEVELS, STOCK_ORDER } from "@/lib/stockLevels";
 import { useLoad } from "@/lib/useLoad";
+
+// The stock reports send each product's level as its label ("Low stock"); shown with its colour and icon.
+const STOCK_BY_LABEL = new Map(STOCK_ORDER.map((s) => [STOCK_LEVELS[s].label, s]));
 
 type ReportInfo = { key: string; title: string; uses_dates: boolean };
 type Column = { key: string; label: string; kind: "money" | "quantity" | "text" | "date" };
@@ -47,9 +55,9 @@ function today(): string {
 
 export default function ReportsPage() {
   const list = useLoad<ReportInfo[]>("/reports/");
-  const [key, setKey] = useState("");
-  const [from, setFrom] = useState(firstOfMonth());
-  const [to, setTo] = useState(today());
+  const [key, setKey] = useBackState("key", "");
+  const [from, setFrom] = useBackState("from", firstOfMonth());
+  const [to, setTo] = useBackState("to", today());
   useEffect(() => {
     if (!key && list.data?.length) setKey(list.data[0].key);
   }, [key, list.data]);
@@ -58,6 +66,9 @@ export default function ReportsPage() {
   const badDates = !!info?.uses_dates && (!from || !to || from > to);
   const query = info?.uses_dates ? `?date_from=${from}&date_to=${to}` : "";
   const report = useLoad<Report>(key && !badDates ? `/reports/${key}/${query}` : null);
+  const defs = useMemo<ColumnDef[]>(() => (report.data?.columns ?? []).map((c) => ({ key: c.key, label: c.label })), [report.data]);
+  const cols = useColumnVisibility(`report-${key}`, defs);
+  const shown = (report.data?.columns ?? []).filter((c) => cols.show(c.key));
 
   if (list.loading && !list.data) return <Spinner />;
   if (list.error) return <Alert kind="error">{list.error}</Alert>;
@@ -92,7 +103,10 @@ export default function ReportsPage() {
             {HELP[key] && <p className="mt-1 max-w-3xl text-sm text-slate-600">{HELP[key]}</p>}
           </div>
           {report.data && report.data.rows.length > 0 && (
-            <a className="btn-secondary no-print" href={`/api/v1/reports/${key}/${query}${query ? "&" : "?"}download=csv`}>Download for Excel (CSV)</a>
+            <div className="no-print flex flex-wrap items-center gap-2">
+              <ColumnPicker visibility={cols} />
+              <a className="btn-secondary" href={`/api/v1/reports/${key}/${query}${query ? "&" : "?"}download=csv`}>Download for Excel (CSV)</a>
+            </div>
           )}
         </div>
         {report.loading ? <Spinner /> : report.error ? <Alert kind="error">{report.error}</Alert> : !report.data ? null : report.data.rows.length === 0 ? (
@@ -100,19 +114,22 @@ export default function ReportsPage() {
         ) : (
           <table className="table">
             <thead>
-              <tr>{report.data.columns.map((c) => <th key={c.key} className={c.kind === "money" || c.kind === "quantity" ? "num" : ""}>{c.label}</th>)}</tr>
+              <tr>{shown.map((c) => <th key={c.key} className={c.kind === "money" || c.kind === "quantity" ? "num" : ""}>{c.label}</th>)}</tr>
             </thead>
             <tbody>
               {report.data.rows.map((row, i) => (
                 <tr key={i}>
-                  {report.data!.columns.map((c) => <td key={c.key} className={c.kind === "money" || c.kind === "quantity" ? "num" : ""}>{show(row[c.key], c.kind)}</td>)}
+                  {shown.map((c) => {
+                    const level = c.key === "status" ? STOCK_BY_LABEL.get(String(row[c.key])) : undefined;
+                    return <td key={c.key} className={c.kind === "money" || c.kind === "quantity" ? "num" : ""}>{level ? <StockBadge status={level} /> : show(row[c.key], c.kind)}</td>;
+                  })}
                 </tr>
               ))}
             </tbody>
             {Object.keys(report.data.totals).length > 0 && (
               <tfoot>
                 <tr className="font-bold">
-                  {report.data.columns.map((c, i) => (
+                  {shown.map((c, i) => (
                     <td key={c.key} className={c.kind === "money" || c.kind === "quantity" ? "num" : ""}>
                       {i === 0 ? "Total" : c.key in report.data!.totals ? show(report.data!.totals[c.key], c.kind) : ""}
                     </td>

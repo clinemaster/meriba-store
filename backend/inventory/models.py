@@ -151,3 +151,21 @@ class OpeningCountLine(models.Model):
     @property
     def variance(self):
         return None if self.reference_quantity is None else self.counted_quantity - self.reference_quantity
+
+class StockAlert(AppendOnlyModel):
+    """A product's stock level got worse (for example healthy to low, or low to out of stock).
+
+    Written by the stock movement that caused it, never by viewing a page, so each change is announced once.
+    Getting better (a delivery) is not an alert.
+    """
+
+    branch = models.ForeignKey("core.Branch", on_delete=models.PROTECT, related_name="+")
+    product = models.ForeignKey("catalog.Product", on_delete=models.PROTECT, related_name="stock_alerts")
+    movement = models.OneToOneField(InventoryMovement, on_delete=models.PROTECT, related_name="stock_alert")
+    status_before = models.CharField(max_length=12)
+    status_after = models.CharField(max_length=12)
+    quantity = models.DecimalField(max_digits=14, decimal_places=3)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-id"]
