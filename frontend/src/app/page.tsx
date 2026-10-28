@@ -49,7 +49,7 @@ function StockLevels() {
           <Link key={s} href={`/products?stock=${s}`} className={`rounded-lg border-2 p-4 hover:shadow-md focus-visible:outline focus-visible:outline-2 ${STOCK_LEVELS[s].tile}`}
             aria-label={`${STOCK_LEVELS[s].label}: ${counts[s]} product${counts[s] === 1 ? "" : "s"}. Show them.`}>
             <div className="flex items-center gap-2 text-sm font-semibold"><span aria-hidden>{STOCK_LEVELS[s].icon}</span>{STOCK_LEVELS[s].label}</div>
-            <div className="mt-1 text-3xl font-bold tabular-nums">{counts[s]}</div>
+            <div className="mt-1 text-2xl font-bold tabular-nums">{counts[s]}</div>
             <div className="text-sm text-slate-700">product{counts[s] === 1 ? "" : "s"} on sale</div>
           </Link>
         ))}

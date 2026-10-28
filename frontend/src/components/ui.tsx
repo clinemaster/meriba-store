@@ -144,7 +144,7 @@ export function Stat({ label, value, note, strong = false }: { label: string; va
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
       <div className="text-sm font-semibold text-slate-600">{label}</div>
-      <div className={`mt-1 tabular-nums ${strong ? "text-3xl font-bold" : "text-xl font-semibold"}`}>{value}</div>
+      <div className={`mt-1 text-2xl tabular-nums ${strong ? "font-bold" : "font-semibold"}`}>{value}</div>
       {note && <div className="mt-1 text-sm text-slate-600">{note}</div>}
     </div>
   );

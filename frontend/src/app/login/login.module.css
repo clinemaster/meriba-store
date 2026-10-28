@@ -59,7 +59,7 @@
 
 .slideImage {
   object-fit: cover;
-  animation: image-arrive .65s ease both;
+  animation: image-arrive .65s ease both, image-drift 12s ease-in-out .65s infinite alternate;
 }
 
 .slideShade {
@@ -212,6 +212,10 @@
 
 @keyframes card-arrive { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes image-arrive { from { opacity: .35; } to { opacity: 1; } }
+@keyframes image-drift {
+  from { transform: scale(1.04) translate3d(-.5%, -.5%, 0); }
+  to { transform: scale(1.08) translate3d(.5%, .5%, 0); }
+}
 @keyframes spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 760px) {

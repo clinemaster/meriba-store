@@ -64,7 +64,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen">
       <header ref={header} className="no-print sticky top-0 z-30 bg-gradient-to-r from-[#6342c9] to-[#7c60db] text-white">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5">
           <div className="flex items-center gap-3">
             <button type="button" className="rounded-lg border border-white/60 px-3 py-1.5 font-semibold hover:bg-white/10 lg:hidden"
               aria-expanded={menuOpen} aria-controls="main-menu" onClick={() => setMenuOpen((open) => !open)}>
@@ -86,12 +86,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="flex">
         {menuOpen && <button type="button" aria-label="Close the menu" className="no-print fixed inset-0 z-20 bg-slate-900/50 lg:hidden" onClick={() => setMenuOpen(false)} />}
         <nav id="main-menu" aria-label="Main menu" style={{ top: headerHeight, height: `calc(100vh - ${headerHeight}px)` }}
-          className={`no-print fixed left-0 z-20 w-64 shrink-0 overflow-y-auto border-r border-slate-200 bg-white py-3 shadow-xl
+          className={`no-print fixed left-0 z-20 w-60 shrink-0 overflow-y-auto border-r border-slate-200 bg-white py-2 shadow-xl
             lg:sticky lg:z-10 lg:block lg:shadow-none ${menuOpen ? "block" : "hidden"}`}>
           <SidebarNav role={user.role} pathname={pathname} />
         </nav>
 
-        <main className="min-w-0 flex-1 px-4 py-6">
+        <main className="min-w-0 flex-1 px-4 py-5">
           <div className="mx-auto max-w-7xl">
             {allowed ? (
               children

@@ -125,7 +125,7 @@ export function SheetSale({ line, quantity: typed, onClose, onSaved }: {
 
         <div className="flex items-baseline justify-between rounded-lg bg-brand-50 px-4 py-3">
           <span className="text-lg font-semibold">Total to pay</span>
-          <span className="text-3xl font-bold tabular-nums" data-testid="sale-total">{formatTZS(totalCents, true)}</span>
+          <span className="text-2xl font-bold tabular-nums" data-testid="sale-total">{formatTZS(totalCents, true)}</span>
         </div>
         {pack && <p className="text-sm text-slate-600">The sheet counts this as {formatQty(needed)} {baseUnit.toLowerCase()}(s) in the Sales column.</p>}
 
