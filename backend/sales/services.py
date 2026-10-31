@@ -56,23 +56,45 @@ def _price_lines(items) -> list[dict]:
     return lines
 
 
+def check_provider(method, provider):
+    """The provider rules for one payment or refund. Returns the provider to store (or None)."""
+    if not method.is_active:
+        raise _bad(f"{method.name} is not accepted at the moment.", "method_inactive")
+    if provider is not None:
+        if provider.category_id != method.pk:
+            raise _bad(f"{provider.name} is not a {method.name} provider.", "provider_mismatch")
+        if not provider.is_active:
+            raise _bad(f"{provider.name} is not accepted at the moment. Choose another {method.name} provider.", "provider_inactive")
+    elif method.requires_provider:
+        names = ", ".join(method.providers.filter(is_active=True).values_list("name", flat=True))
+        if not names:
+            raise _bad(f"{method.name} has no provider switched on, so it cannot be used.", "no_active_provider")
+        raise _bad(f"Choose which {method.name} provider was used ({names}).", "provider_required", {"method": method.pk})
+    return provider
+
+
+def payment_label(method, provider_name="") -> str:
+    return f"{method.name} · {provider_name}" if provider_name else method.name
+
+
 def _allocate_payments(payments, total: Decimal, cfg: BusinessSettings) -> tuple[list[dict], Decimal]:
     """Work out how much of each payment is kept. Only cash can be over-paid; the extra is change."""
     if not payments:
         raise _bad("Choose how the customer is paying.", "no_payment")
-    methods = [p["method"].pk for p in payments]
-    if len(methods) != len(set(methods)):
-        raise _bad("Each payment method can be used only once in a sale.", "duplicate_method")
     if len(payments) > 1 and not cfg.split_payments_enabled:
         raise _bad("A sale can be paid with one payment method only.", "split_disabled")
-    rows = []
+    rows, seen = [], set()
     for p in payments:
         method, amount = p["method"], money(p["amount"])
-        if not method.is_active:
-            raise _bad(f"{method.name} is not accepted at the moment.", "method_inactive")
+        provider = check_provider(method, p.get("provider"))
+        key = (method.pk, getattr(provider, "pk", None))
+        if key in seen:
+            raise _bad(f"{payment_label(method, getattr(provider, 'name', ''))} appears twice. Put the whole amount on one line.", "duplicate_method")
+        seen.add(key)
         if amount <= 0:
-            raise _bad(f"Enter the amount paid by {method.name}.", "bad_amount")
-        rows.append({"method": method, "tendered": amount, "amount": amount, "reference": (p.get("reference") or "").strip()[:60]})
+            raise _bad(f"Enter the amount paid by {payment_label(method, getattr(provider, 'name', ''))}.", "bad_amount")
+        rows.append({"method": method, "provider": provider, "provider_name": getattr(provider, "name", ""),
+                     "tendered": amount, "amount": amount, "reference": (p.get("reference") or "").strip()[:60]})
 
     non_cash = sum((r["tendered"] for r in rows if not r["method"].is_cash), ZERO)
     cash = sum((r["tendered"] for r in rows if r["method"].is_cash), ZERO)
@@ -83,12 +105,15 @@ def _allocate_payments(payments, total: Decimal, cfg: BusinessSettings) -> tuple
             f"The amount paid is {total - non_cash - cash:,.0f} less than the total.", "underpaid",
             {"outstanding": str(total - non_cash - cash)},
         )
-    change = non_cash + cash - total
+    # The change comes out of the cash handed over, once in total (not once per cash line).
+    change = left = non_cash + cash - total
     for r in rows:
-        if r["method"].is_cash:
-            r["amount"] = r["tendered"] - change
-            if r["amount"] <= 0:
-                raise _bad("The other payments already cover the total. Remove the cash amount.", "cash_not_needed")
+        if r["method"].is_cash and left > 0:
+            taken = min(left, r["tendered"])
+            r["amount"] = r["tendered"] - taken
+            left -= taken
+    if any(r["amount"] <= 0 for r in rows):
+        raise _bad("The other payments already cover the total. Remove the cash amount.", "cash_not_needed")
     return rows, change
 
 
@@ -140,7 +165,7 @@ def create_sale(*, cashier, request_key, items, payments) -> tuple[Sale, bool]:
                  cost_total=line["cost_total"], cost_provisional=line["cost_provisional"])
         for line in lines
     ])
-    Payment.objects.bulk_create([Payment(sale=sale, **row) for row in payment_rows])
+    Payment.objects.bulk_create([Payment(sale=sale, recorded_by=cashier, created_at=sale.created_at, **row) for row in payment_rows])
 
     # One stock movement per product, in product order so concurrent sales cannot deadlock.
     per_product: dict[int, dict] = {}
@@ -154,7 +179,9 @@ def create_sale(*, cashier, request_key, items, payments) -> tuple[Sale, bool]:
             user=cashier, business_date=day.date,
         )
     audit(cashier, "sale.completed", sale, summary=f"Sale {sale.receipt_number} for {total:,.0f}",
-          after={"total": total, "items": len(lines), "payments": {r["method"].code: r["amount"] for r in payment_rows}})
+          after={"total": total, "items": len(lines),
+                 "payments": [{"category": r["method"].code, "provider": r["provider_name"] or None, "amount": r["amount"],
+                               "reference": r["reference"]} for r in payment_rows]})
     return sale, True
 
 
@@ -186,7 +213,9 @@ def void_sale(*, sale_id, actor, reason) -> tuple[Sale, bool]:
     sale.voided_by = actor
     sale.void_reason = reason[:300]
     sale.save(update_fields=["status", "voided_at", "voided_by", "void_reason"])
-    sale.payments.update(status=Payment.Status.REVERSED)
+    reversed_payments = [{"payment": p.pk, "category": p.method.code, "provider": p.provider_name or None, "amount": p.amount}
+                         for p in sale.payments.select_related("method")]
+    sale.payments.update(status=Payment.Status.REVERSED, updated_at=timezone.now())
 
     per_product: dict[int, dict] = {}
     for item in sale.items.select_related("product"):
@@ -199,12 +228,12 @@ def void_sale(*, sale_id, actor, reason) -> tuple[Sale, bool]:
             user=actor, business_date=day.date, reason=reason,
         )
     audit(actor, "sale.voided", sale, summary=f"Cancelled sale {sale.receipt_number} ({sale.total:,.0f})", reason=reason,
-          before={"status": "COMPLETED"}, after={"status": "VOIDED"})
+          before={"status": "COMPLETED"}, after={"status": "VOIDED", "payments_reversed": reversed_payments})
     return sale, True
 
 
 @transaction.atomic
-def refund_sale(*, sale_id, actor, request_key, lines, method, reason, shift=None, reference=""):
+def refund_sale(*, sale_id, actor, request_key, lines, method, reason, shift=None, reference="", provider=None):
     """Give money back for items of a completed sale.
 
     The refund belongs to the business day that is open NOW and is linked to the original sale.
@@ -234,8 +263,7 @@ def refund_sale(*, sale_id, actor, request_key, lines, method, reason, shift=Non
         raise BusinessRuleError(
             "No business day is open. A refund is recorded on the open day, so start the day first.", code="no_open_day"
         )
-    if not method.is_active:
-        raise _bad(f"{method.name} is not accepted at the moment.", "method_inactive")
+    provider = check_provider(method, provider)
     if method.is_cash:
         open_shifts = list(CashierShift.objects.filter(business_day=day, status=CashierShift.Status.OPEN))
         if shift is None and len(open_shifts) == 1:
@@ -278,7 +306,8 @@ def refund_sale(*, sale_id, actor, request_key, lines, method, reason, shift=Non
         raise _bad("Each item can appear only once in a refund.", "duplicate_item")
 
     refund = Refund.objects.create(
-        sale=sale, business_day=day, shift=shift, method=method, total=total, reason=reason[:300],
+        sale=sale, business_day=day, shift=shift, method=method, provider=provider, provider_name=getattr(provider, "name", ""),
+        total=total, reason=reason[:300],
         reference=(reference or "").strip()[:60], request_key=request_key, created_by=actor,
     )
     RefundItem.objects.bulk_create([
@@ -298,6 +327,46 @@ def refund_sale(*, sale_id, actor, request_key, lines, method, reason, shift=Non
         )
     audit(actor, "sale.refunded", sale, reason=reason,
           summary=f"Refund of {total:,.0f} on sale {sale.receipt_number} (sold {sale.business_day}), recorded on {day}",
-          after={"refund": refund.pk, "total": total, "method": method.code, "restocked": {str(k): v["qty"] for k, v in back.items()},
+          after={"refund": refund.pk, "total": total, "method": method.code, "provider": refund.provider_name or None, "restocked": {str(k): v["qty"] for k, v in back.items()},
                  "not_restocked": sum(1 for r in rows if not r["restock"])})
     return refund, True
+
+
+@transaction.atomic
+def correct_payment_provider(*, payment_id, actor, provider, reason) -> Payment:
+    """Record which provider carried a payment. The amount, category and sale never change.
+
+    Allowed for a payment with no provider recorded (those taken before providers existed), at any time; and to fix
+    a wrong choice while the cashier's shift is still open. Once a shift is closed and counted, a recorded provider
+    stays as it was. Kept in the audit history with the old and new provider and the reason.
+    """
+    reason = (reason or "").strip()
+    if len(reason) < 10:
+        raise _bad("Explain clearly how you know which provider carried this payment.", "reason_required")
+    payment = Payment.objects.select_for_update().select_related("sale", "method").filter(pk=payment_id).first()
+    if payment is None:
+        raise BusinessRuleError("We could not find that payment.", code="not_found", status_code=404)
+    if payment.status == Payment.Status.REVERSED:
+        raise BusinessRuleError("This payment belongs to a cancelled sale, so it is not changed.", code="payment_reversed")
+    if provider.category_id != payment.method_id:
+        raise _bad(f"{provider.name} is not a {payment.method.name} provider.", "provider_mismatch")
+    if payment.provider_id == provider.pk:
+        raise _bad(f"This payment is already recorded as {provider.name}.", "no_change")
+    if payment.provider_id is not None:
+        if CashierShift.objects.get(pk=payment.sale.shift_id).status != CashierShift.Status.OPEN:
+            raise BusinessRuleError(
+                "The cashier's shift for this payment is closed and counted, so its recorded provider stays as it is.",
+                code="shift_closed",
+            )
+        if not provider.is_active:
+            raise _bad(f"{provider.name} is switched off.", "provider_inactive")
+    before = {"provider": payment.provider_name or None, "provider_id": payment.provider_id}
+    payment.provider = provider
+    payment.provider_name = provider.name
+    payment.save(update_fields=["provider", "provider_name", "updated_at"])
+    audit(actor, "payment.corrected", payment, reason=reason,
+          summary=f"Provider of the {payment.method.name} payment of {payment.amount:,.0f} on {payment.sale.receipt_number} "
+                  f"set to {provider.name}" + (f" (was {before['provider']})" if before["provider"] else " (was not recorded)"),
+          before=before, after={"provider": provider.name, "provider_id": provider.pk, "amount": payment.amount,
+                                "category": payment.method.code, "receipt": payment.sale.receipt_number})
+    return payment

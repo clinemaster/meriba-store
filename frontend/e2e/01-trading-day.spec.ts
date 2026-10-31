@@ -18,8 +18,8 @@ const today = new Date().toISOString().slice(0, 10);
 async function signIn(page: Page, username: string, password: string) {
   await page.goto("/login");
   await page.getByLabel("Username").fill(username);
-  await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.getByLabel("Password", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "LOGIN" }).click();
   await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
 }
 
@@ -55,8 +55,8 @@ test("sign-in refuses a wrong password in plain words", async ({ page }) => {
   await page.goto("/");
   await expect(page).toHaveURL(/\/login$/); // not signed in: sent to the sign-in page
   await page.getByLabel("Username").fill(OWNER.username);
-  await page.getByLabel("Password").fill("definitely-wrong");
-  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.getByLabel("Password", { exact: true }).fill("definitely-wrong");
+  await page.getByRole("button", { name: "LOGIN" }).click();
   await expect(page.locator('[role="alert"]:not(#__next-route-announcer__)')).toContainText("The username or password is not correct");
 });
 
@@ -155,7 +155,7 @@ test("cashier chooses a password, starts the day and sells", async ({ page }) =>
 
   // the cashier sees only daily selling
   const menu = page.getByRole("navigation", { name: "Main menu" });
-  await expect(menu.getByRole("link")).toHaveText(["Home", "Today's Sales", "Daily Sheet", "Close Day", "Help"]);
+  await expect(menu.getByRole("link")).toHaveText(["Home", "Today's Sales", "Daily Sheet", "Close Day", "My Payments", "Help"]);
   await expect(page.getByRole("banner").getByRole("link", { name: "Help" })).toHaveCount(0); // Help is in the sidebar, not the top bar
   await expect(menu.getByRole("button")).toHaveText(["Selling"]); // the sidebar's only group for a cashier, open on Home
   await page.goto("/users");
@@ -198,7 +198,7 @@ test("cashier chooses a password, starts the day and sells", async ({ page }) =>
   await saved.getByRole("button", { name: "Back to the sheet" }).click();
   // the sheet has worked out the rest: Sales 2, Closing stock 48 - 2
   await expect(konyagi.getByRole("cell").nth(4)).toHaveText("2");
-  await expect(konyagi.getByRole("cell").nth(5)).toHaveText("46");
+  await expect(konyagi.getByRole("cell").nth(5)).toHaveText(/^46\b/);
 
   // Sale 2: one crate, part cash and part mobile money
   await page.getByLabel("Find a product on the sheet").fill("safari");
@@ -209,7 +209,10 @@ test("cashier chooses a password, starts the day and sells", async ({ page }) =>
   await entry.getByLabel("Cash received (TZS)").fill("6000");
   await expect(entry.getByText(/Still to pay: TZS 30,000/)).toBeVisible();
   await expect(entry.getByRole("button", { name: /^Save sale/ })).toBeDisabled();
-  await entry.getByLabel("Mobile Money amount (TZS)").fill("30000");
+  // The second payment: Mobile Money, then which provider (required)
+  await entry.getByRole("radiogroup", { name: "Payment 2 method" }).getByRole("radio", { name: /Mobile Money/ }).click();
+  await entry.getByRole("radio", { name: "M-PESA" }).click();
+  await entry.getByLabel("Mobile Money · M-PESA amount (TZS)").fill("30000");
   await entry.getByRole("button", { name: /^Save sale/ }).click();
   await expect(saved).toContainText(/MB-\d{8}-0002/);
   await saved.getByRole("button", { name: "Back to the sheet" }).click();
@@ -285,6 +288,7 @@ test("owner receives stock, refunds an item and records an expense during the da
   // The Owner closes their own till (no sales, nothing in it); the day stays open for the cashier
   await openScreen(page, "Close Day", "Close Day");
   await page.getByLabel("Cash you counted (TZS)").fill("0");
+  await page.getByRole("checkbox", { name: /I have checked the payment breakdown/ }).check();
   await page.getByRole("button", { name: "Review and Close…" }).click();
   await page.getByRole("button", { name: "Yes, close my shift" }).click();
   await expect(page.getByText(/is closed\. No more sales can be added/)).toBeVisible();
@@ -317,10 +321,10 @@ test("owner receives stock, refunds an item and records an expense during the da
   // is not a sale); 71 left. Sales 9,000 less the 4,500 refund; cost 3,750 a bottle; gross profit 750.
   const konyagiRow = page.getByRole("row").filter({ hasText: "Konyagi ndogo" });
   await expect(konyagiRow.getByRole("cell")).toHaveText([
-    "1", "Konyagi ndogo", "Bottle", "200 ml", "71", "3,750", "4,500", "4,500", "750", "71", /Details/]);
+    "1", "Konyagi ndogo", "Bottle", "200 ml", "71", "3,750", "4,500", "4,500", "750", /^71\b/, /Details/]);
   // Safari: 10 crates counted, 1 sold, 1 broken, 8 left; sold for 36,000, cost 34,000
   await expect(page.getByRole("row").filter({ hasText: "Safari Kubwa" }).getByRole("cell")).toHaveText([
-    "2", "Safari Kubwa", /^Crate/, "500 ml", "8", "34,000", "36,000", "36,000", "2,000", "8", /Details/]);
+    "2", "Safari Kubwa", /^Crate/, "500 ml", "8", "34,000", "36,000", "36,000", "2,000", /^8\b/, /Details/]);
   await expect(page.getByRole("row").filter({ hasText: /^Total for all 2 products/ })).toContainText("40,500");
   // sorting by a column
   await page.getByRole("button", { name: /^Total Sales/ }).click();
@@ -402,7 +406,7 @@ test("cashier closes the day with the cash count", async ({ page }) => {
   const konyagi = page.getByRole("row").filter({ hasText: "Konyagi ndogo 200ml" });
   const entry = page.getByRole("dialog", { name: "Save this sale" });
   const saved = page.getByRole("dialog", { name: "Sale saved" });
-  await expect(konyagi.getByRole("cell").nth(5)).toHaveText("71");
+  await expect(konyagi.getByRole("cell").nth(5)).toHaveText(/^71\b/);
 
   // One more sale first: a whole crate of Konyagi, the package the Owner configured and verified (12 bottles)
   await page.getByLabel("Quantity of Konyagi ndogo 200ml sold").fill("1");
@@ -414,18 +418,20 @@ test("cashier closes the day with the cash count", async ({ page }) => {
   await saved.getByRole("button", { name: "Back to the sheet" }).click();
   // the sheet counts the crate as 12 bottles: Sales 2 -> 14, Closing stock 71 -> 59
   await expect(konyagi.getByRole("cell").nth(4)).toHaveText("14");
-  await expect(konyagi.getByRole("cell").nth(5)).toHaveText("59");
+  await expect(konyagi.getByRole("cell").nth(5)).toHaveText(/^59\b/);
 
   // and one bottle paid by mobile money
   await page.getByLabel("Quantity of Konyagi ndogo 200ml sold").fill("1");
   await page.getByRole("button", { name: "Save sale of Konyagi ndogo 200ml" }).click();
   await expect(entry.getByTestId("sale-total")).toHaveText("TZS 4,500");
-  await entry.getByRole("radio", { name: "Mobile Money" }).click();
+  await entry.getByRole("radio", { name: /Mobile Money/ }).click();
+  await expect(entry.getByRole("button", { name: /^Save sale/ })).toBeDisabled(); // not until the provider is chosen
+  await entry.getByRole("radio", { name: "Airtel Money" }).click();
   await entry.getByRole("button", { name: /^Save sale/ }).click();
   await saved.getByRole("button", { name: "Back to the sheet" }).click();
   await expect(page.getByText(/Saved: 1 Bottle × Konyagi ndogo 200ml, TZS 4,500\. Receipt/)).toBeVisible();
   await expect(konyagi.getByRole("cell").nth(4)).toHaveText("15");
-  await expect(konyagi.getByRole("cell").nth(5)).toHaveText("58");
+  await expect(konyagi.getByRole("cell").nth(5)).toHaveText(/^58\b/);
 
   await (await menuLink(page, "Close Day")).click();
   await expect(page.getByRole("heading", { name: "Close Day" })).toBeVisible();
@@ -438,6 +444,9 @@ test("cashier closes the day with the cash count", async ({ page }) => {
   await expect(close).toBeDisabled(); // a difference needs a note
   await page.getByLabel("Cash you counted (TZS)").fill("159500");
   await expect(page.getByText("No difference")).toBeVisible();
+  await expect(close).toBeDisabled(); // the payment breakdown must be checked first
+  await expect(page.getByRole("table", { name: "Payments by provider" })).toContainText("M-PESA");
+  await page.getByRole("checkbox", { name: /I have checked the payment breakdown/ }).check();
   await close.click();
   await page.getByRole("button", { name: "Yes, close my shift" }).click();
   await expect(page.getByText(/is closed\. No more sales can be added/)).toBeVisible();
@@ -495,7 +504,7 @@ test("owner reviews the closing and reads reports, audit history, settings and h
   // Sales 9,000 + 50,000 + 4,500 - 4,500 refunded; cost 14 bottles at 3,750; gross profit 6,500.
   await openScreen(page, "Products", "Products");
   await expect(page.getByRole("row").filter({ hasText: "Konyagi ndogo" }).getByRole("cell")).toHaveText([
-    "1", "Konyagi ndogo", "Bottle", "200 ml", "58", "3,750", "4,500", "59,000", "6,500", "58", /Details/]);
+    "1", "Konyagi ndogo", "Bottle", "200 ml", "58", "3,750", "4,500", "59,000", "6,500", /^58\b/, /Details/]);
 
   // The Daily Sheet: the Excel worksheet's columns, in the Excel order, with the Excel sums
   await openScreen(page, "Daily Sheet", "Daily Sheet");
@@ -516,8 +525,11 @@ test("owner reviews the closing and reads reports, audit history, settings and h
   const konyagi = page.getByRole("row").filter({ hasText: "Konyagi ndogo" });
   await expect(konyagi).toContainText("58");
   const download = page.waitForEvent("download");
-  await page.getByRole("link", { name: /Download for Excel/ }).click();
+  await page.getByRole("link", { name: "Download CSV" }).click();
   expect((await download).suggestedFilename()).toMatch(/^meriba_stock-daily_.*\.csv$/);
+  const workbook = page.waitForEvent("download");
+  await page.getByRole("link", { name: "Download Excel" }).click();
+  expect((await workbook).suggestedFilename()).toMatch(/^meriba_stock-daily_.*\.xlsx$/);
 
   await openScreen(page, "Audit History", "Audit History");
   await expect(page.getByRole("row").filter({ hasText: "Closed business day" }).first()).toBeVisible();

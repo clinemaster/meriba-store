@@ -2,32 +2,89 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * MERIBA design tokens: the only place colours are defined. Tailwind reads them (tailwind.config.ts), so classes such as
+ * bg-success-soft or text-warning follow any change here. Every colour has one meaning:
+ *   primary (navy) = the app's frame: top bar and menu     secondary (teal) = stock value
+ *   action / brand (blue) = what can be pressed or is selected   success / warning / danger / info = states only
+ *   refund (violet) = money given back                     neutral (grey) = closed, switched off, history
+ * Each pair used for text was checked for WCAG 2.2 AA contrast (4.5:1 for text, 3:1 for control edges and focus).
+ */
+:root {
+  --primary: 30 58 95;        /* #1E3A5F */
+  --primary-light: 42 74 115; /* #2A4A73: hover and current page in the menu */
+  --primary-dark: 21 42 69;   /* #152A45 */
+
+  --action-50: 239 246 255;   --action-100: 219 234 254;  --action-200: 191 219 254;
+  --action-600: 37 99 235;    /* #2563EB, 5.2:1 on white */
+  --action-700: 29 78 216;    --action-800: 30 64 175;
+
+  --secondary: 15 118 110;  --secondary-soft: 240 253 250; --secondary-line: 94 234 212;  --secondary-ink: 19 78 74;
+  --success: 21 128 61;     --success-soft: 240 253 244;   --success-line: 134 239 172;   --success-ink: 20 83 45;
+  --warning: 180 83 9;      --warning-soft: 255 251 235;   --warning-line: 252 211 77;    --warning-ink: 120 53 15;
+  --danger: 185 28 28;      --danger-soft: 254 242 242;    --danger-line: 252 165 165;    --danger-ink: 127 29 29;
+  --info: 3 105 161;        --info-soft: 240 249 255;      --info-line: 125 211 252;      --info-ink: 12 74 110;
+  --neutral: 71 85 105;     --neutral-soft: 241 245 249;   --neutral-line: 203 213 225;   --neutral-ink: 51 65 85;
+  --refund: 109 40 217;     --refund-soft: 245 243 255;    --refund-line: 196 181 253;    --refund-ink: 76 29 149;
+
+  --canvas: 248 250 252;      /* page background */
+  --surface: 255 255 255;     /* cards, tables, dialogs */
+  --ink: 15 23 42;            /* main text */
+  --ink-muted: 71 85 105;     /* secondary text, 7.6:1 on white */
+  --line: 203 213 225;        /* separators and card edges (decoration) */
+  --line-strong: 100 116 139; /* edges of inputs and buttons: 4.8:1, above the 3:1 a control needs */
+  --focus: 37 99 235;         /* keyboard focus outline on light surfaces */
+}
+
 @layer base {
   html { font-size: 14px; }
-  body { @apply bg-slate-100 text-slate-900 antialiased; font-size: 14px; }
+  body { @apply bg-canvas text-ink antialiased; font-size: 14px; }
   label { font-size: 13px; line-height: 1.4; }
-  :focus-visible { @apply outline-none ring-4 ring-amber-400; }
+  /* A clear outline around whatever the keyboard is on: 5.2:1 on white (the old amber ring was 1.7:1). */
+  :focus-visible { outline: 3px solid rgb(var(--focus)); outline-offset: 2px; }
 }
 
 @layer components {
   .btn { @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-4 py-2 text-base font-semibold transition disabled:cursor-not-allowed disabled:opacity-50; }
-  .btn-primary { @apply btn bg-brand-600 text-white hover:bg-brand-700; }
-  .btn-secondary { @apply btn border-2 border-slate-300 bg-white text-slate-800 hover:bg-slate-50; }
-  .btn-danger { @apply btn bg-red-700 text-white hover:bg-red-800; }
+  /* Primary: the one main thing to do on a screen. Secondary: quieter. Danger: changes that cannot be undone. */
+  .btn-primary { @apply btn bg-brand-600 text-white shadow-sm hover:bg-brand-700; }
+  .btn-secondary { @apply btn border border-line-strong bg-surface text-ink hover:border-brand-600 hover:bg-brand-50; }
+  .btn-danger { @apply btn bg-danger text-white shadow-sm hover:bg-danger-ink; }
   .btn-big { @apply min-h-[4rem] flex-col text-lg; }
-  .input { @apply block min-h-11 w-full rounded-lg border-2 border-slate-300 bg-white px-3 py-2 text-base placeholder:text-slate-400 focus:border-brand-600; }
-  .card { @apply rounded-xl border border-slate-200 bg-white p-4 shadow-sm; }
-  .table { @apply w-full text-left; font-size: 13px; line-height: 1.4; }
-  .table th { @apply border-b-2 border-slate-200 px-2 py-1.5 font-semibold text-slate-600; font-size: 12.5px; }
-  .table td { @apply border-b border-slate-100 px-2 py-1.5 align-middle; }
+  .input { @apply block min-h-11 w-full rounded-lg border border-line-strong bg-surface px-3 py-2 text-base placeholder:text-slate-500 focus:border-brand-600; }
+  .card { @apply rounded-xl border border-line bg-surface p-4 shadow-sm; }
+  /* Every table: compact, content-sized columns, numbers right and text left. */
+  .table { @apply w-full text-left; font-size: 12px; line-height: 1.35; }
+  .table th { @apply border-b-2 border-line bg-neutral-soft font-semibold text-ink-muted; font-size: 11px; padding: 4px 5px; }
+  .table td { @apply border-b border-slate-100 align-middle; padding: 3px 5px; }
+  .table tfoot td { @apply border-b-0 border-t-2 border-line bg-neutral-soft; }
   .num { @apply text-right tabular-nums; }
+  .th-sort { @apply whitespace-nowrap font-semibold underline-offset-2 hover:underline; }
+
+  /* Row buttons: side by side, 28px high with a mouse, larger where fingers tap. */
+  .actions-cell { @apply w-px whitespace-nowrap text-right; }
+  .row-actions { @apply flex items-center justify-end; gap: 4px; }
+  .btn-table { @apply inline-flex items-center justify-center whitespace-nowrap rounded-md border border-line-strong bg-surface font-semibold text-ink transition hover:border-brand-600 hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-50; min-height: 28px; padding: 2px 8px; font-size: 12px; }
+  .btn-table-primary { @apply border-brand-600 bg-brand-600 text-white hover:bg-brand-700; }
+  .btn-table-danger { @apply border-danger bg-danger text-white hover:bg-danger-ink; }
+
+  /* Table toolbar and picker controls. */
+  .btn-sm { @apply inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-md border border-line-strong bg-surface font-semibold text-ink transition hover:border-brand-600 hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-50; min-height: 32px; padding: 2px 10px; font-size: 13px; }
+  .btn-icon { @apply inline-flex shrink-0 items-center justify-center rounded-md border border-line-strong bg-surface text-ink hover:border-brand-600 hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-40; height: 32px; width: 32px; }
 }
 
-/* Row under the pointer: highlighted in every table. */
+/* Where fingers tap, row and toolbar buttons grow to a usable size. */
+@media (pointer: coarse) {
+  .btn-table { min-height: 40px; padding: 4px 12px; }
+  .btn-sm { min-height: 40px; }
+  .btn-icon { height: 40px; width: 40px; }
+}
+
+/* Row under the pointer: highlighted in every table, in the action tint (amber is kept for warnings). */
 @media (hover: hover) {
   tbody tr:hover > td,
-  tbody tr:hover > th { background-color: #fef3c7; }
-  tbody tr:hover > :first-child { box-shadow: inset 4px 0 0 #d97706; }
+  tbody tr:hover > th { background-color: rgb(var(--action-50)); }
+  tbody tr:hover > :first-child { box-shadow: inset 4px 0 0 rgb(var(--action-600)); }
 }
 
 /* Printing a receipt: only the receipt itself goes to the printer. */

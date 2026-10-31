@@ -5,20 +5,28 @@ import { useMemo, useState } from "react";
 import { Receipt } from "@/components/Receipt";
 import { ShareReceipt } from "@/components/ShareReceipt";
 import { ColumnPicker } from "@/components/ColumnPicker";
+import { ActionButton, DataTable, Pagination, TableToolbar } from "@/components/DataTable";
 import { useBackState } from "@/lib/backNav";
-import type { ColumnDef } from "@/lib/columns";
+import type { TableColumn } from "@/lib/table";
 import { useColumnVisibility } from "@/lib/useColumnVisibility";
 import { RefundForm } from "@/components/RefundForm";
-import { Alert, Field, Modal, PageTitle, Spinner, StatusBadge, useConfirm } from "@/components/ui";
+import { Alert, Field, Modal, PageTitle, StatusBadge, useConfirm } from "@/components/ui";
 import { api, errorMessage, type Page } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { formatDate, formatTime, formatTZS } from "@/lib/money";
+import { formatDate, formatTZS } from "@/lib/money";
+import { paymentLabel } from "@/lib/payments";
 import type { CurrentDay, Sale, ShopSettings } from "@/lib/types";
 import { useLoad } from "@/lib/useLoad";
 
-const COLUMNS: ColumnDef[] = [
-  { key: "time", label: "Time" }, { key: "receipt", label: "Receipt", essential: true }, { key: "cashier", label: "Cashier" },
-  { key: "paid", label: "Paid by" }, { key: "total", label: "Total" }, { key: "status", label: "Status" },
+const voided = (s: Sale) => s.status === "VOIDED";
+
+const COLUMNS: TableColumn<Sale>[] = [
+  { key: "time", label: "Time", type: "time", accessor: "created_at" },
+  { key: "receipt", label: "Receipt", essential: true, accessor: "receipt_number", className: "font-mono" },
+  { key: "cashier", label: "Cashier", accessor: "cashier_name" },
+  { key: "paid", label: "Paid by", accessor: (s) => s.payments.map((p) => paymentLabel(p.method_name, p.provider_name)).join(" + ") },
+  { key: "total", label: "Total", type: "currency", className: (s) => `font-semibold ${voided(s) ? "line-through" : ""}` },
+  { key: "status", label: "Status", render: (s) => <StatusBadge status={s.status} label={s.status_label} /> },
 ];
 
 export default function SalesPage() {
@@ -54,7 +62,7 @@ export default function SalesPage() {
     setProblem(null);
     confirm({
       message: `Cancel sale ${open.receipt_number} of ${formatTZS(open.total)}? The items go back into stock and this cannot be undone.`,
-      yes: "Yes, cancel this sale", run: cancelSale,
+      yes: "Yes, cancel this sale", danger: true, run: cancelSale,
     });
   }
 
@@ -88,41 +96,13 @@ export default function SalesPage() {
           </div>
         }
       />
-      <div className="card overflow-x-auto">
-        {rows.length > 0 && <div className="mb-3 flex justify-end"><ColumnPicker visibility={cols} /></div>}
-        {sales.loading && !sales.data ? <Spinner /> : sales.error ? <Alert kind="error">{sales.error}</Alert> : rows.length === 0 ? (
-          <p className="p-4 text-slate-600">No sales recorded for {formatDate(date)}.</p>
-        ) : (
-          <table className="table">
-            <thead>
-              <tr>
-                {cols.show("time") && <th>Time</th>}<th>Receipt</th>{office && cols.show("cashier") && <th>Cashier</th>}
-                {cols.show("paid") && <th>Paid by</th>}{cols.show("total") && <th className="num">Total</th>}{cols.show("status") && <th>Status</th>}
-                <th><span className="sr-only">Actions</span></th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((s) => (
-                <tr key={s.id} className={s.status === "VOIDED" ? "text-slate-500" : ""}>
-                  {cols.show("time") && <td>{formatTime(s.created_at)}</td>}
-                  <td className="font-mono">{s.receipt_number}</td>
-                  {office && cols.show("cashier") && <td>{s.cashier_name}</td>}
-                  {cols.show("paid") && <td>{s.payments.map((p) => p.method_name).join(" + ")}</td>}
-                  {cols.show("total") && <td className={`num font-semibold ${s.status === "VOIDED" ? "line-through" : ""}`}>{formatTZS(s.total)}</td>}
-                  {cols.show("status") && <td><StatusBadge status={s.status} label={s.status_label} /></td>}
-                  <td className="text-right"><button className="btn-secondary min-h-[2.5rem]" onClick={() => setOpen(s)}>View</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-        {pages > 1 && (
-          <div className="mt-3 flex items-center justify-end gap-3">
-            <button className="btn-secondary min-h-[2.5rem]" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</button>
-            <span>Page {page} of {pages}</span>
-            <button className="btn-secondary min-h-[2.5rem]" disabled={page >= pages} onClick={() => setPage(page + 1)}>Next</button>
-          </div>
-        )}
+      <div className="card">
+        {rows.length > 0 && <TableToolbar><ColumnPicker visibility={cols} /></TableToolbar>}
+        <DataTable label="Sales" columns={defs} visibility={cols} rows={rows} rowKey={(s) => s.id}
+          loading={sales.loading && !sales.data} error={sales.error} empty={`No sales recorded for ${formatDate(date)}.`}
+          rowClassName={(s) => (voided(s) ? "text-slate-500" : "")}
+          actions={(s) => <ActionButton aria-label={`View receipt ${s.receipt_number}`} onClick={() => setOpen(s)}>View</ActionButton>} />
+        <Pagination page={page} pages={pages} onPage={setPage} />
       </div>
 
       {open && (
@@ -131,7 +111,7 @@ export default function SalesPage() {
             <div className="no-print mb-3"><Alert kind="warning">Cancelled by {open.voided_by_name}. Reason: {open.void_reason}</Alert></div>
           )}
           {(open.refunds ?? []).map((r) => (
-            <div key={r.id} className="no-print mb-3"><Alert kind="info">Refund of {formatTZS(r.total)} by {r.method_name} on {formatDate(r.business_date)} ({r.created_by_name}). Reason: {r.reason}</Alert></div>
+            <div key={r.id} className="no-print mb-3"><Alert kind="info">Refund of {formatTZS(r.total)} by {paymentLabel(r.method_name, r.provider_name)} on {formatDate(r.business_date)} ({r.created_by_name}). Reason: {r.reason}</Alert></div>
           ))}
           <Receipt sale={open} shop={shop.data} />
           {problem && <div className="no-print mt-3"><Alert kind="error">{problem}</Alert></div>}
@@ -149,15 +129,15 @@ export default function SalesPage() {
               </div>
             </div>
           ) : (
-            <div className="no-print mt-4 flex flex-wrap gap-3">
-              <button className="btn-primary" onClick={() => window.print()}>Print Receipt</button>
-              {open.status === "COMPLETED" && <ShareReceipt sale={open} shop={shop.data} />}
-              <button className="btn-secondary" onClick={close}>Close</button>
+            <div className="no-print mx-auto mt-4 grid w-full max-w-sm grid-cols-5 gap-1">
+              <button className="btn-primary min-h-11 w-full min-w-0 whitespace-normal break-words px-1 py-1 text-center text-xs leading-tight" onClick={() => window.print()}>Print</button>
+              {open.status === "COMPLETED" && <ShareReceipt sale={open} shop={shop.data} compact />}
+              <button className="btn-secondary min-h-11 w-full min-w-0 whitespace-normal break-words px-1 py-1 text-center text-xs leading-tight" onClick={close}>Close</button>
               {office && open.status === "COMPLETED" && (
-                <span className="ml-auto flex gap-2">
-                  <button className="btn-secondary" onClick={() => { setProblem(null); setRefunding(true); }}>Refund items…</button>
-                  {(open.refunds ?? []).length === 0 && <button className="btn-danger" onClick={() => setVoiding(true)}>Cancel this sale…</button>}
-                </span>
+                <>
+                  <button className="btn-secondary min-h-11 w-full min-w-0 whitespace-normal break-words px-1 py-1 text-center text-xs leading-tight" onClick={() => { setProblem(null); setRefunding(true); }}>Refund</button>
+                  {(open.refunds ?? []).length === 0 && <button className="btn-danger min-h-11 w-full min-w-0 whitespace-normal break-words px-1 py-1 text-center text-xs leading-tight" onClick={() => setVoiding(true)}>Cancel sale…</button>}
+                </>
               )}
             </div>
           )}

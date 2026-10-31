@@ -1,13 +1,14 @@
 """The only place that changes stock. Every change goes through post_movement()."""
 from decimal import Decimal
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from catalog import costing, stock_levels
+from catalog.models import Product
 from core.errors import BusinessRuleError
 from core.models import BusinessSettings
-from core.services import audit, get_branch, local_today
+from core.services import audit, get_branch, local_today, money
 
 from .models import (InventoryMovement, OpeningCount, OpeningCountLine, StockAdjustment, StockAdjustmentLine, StockAlert,
                      StockBalance)
@@ -57,42 +58,234 @@ def _alert_if_worse(movement, product):
 
 
 @transaction.atomic
-def record_count(*, user, kind, reason, request_key, lines):
+def record_count(*, user, kind, reason, request_key, lines, remarks="", evidence_reference=""):
     """After go-live: set products to their counted quantities. `lines` is a list of (product, counted_quantity)."""
     existing = StockAdjustment.objects.filter(request_key=request_key).first()
     if existing:
+        if existing.kind != kind:
+            raise BusinessRuleError("This request key was already used for a different stock change.", code="request_key_reused", status_code=409)
         return existing, False
 
     branch = get_branch()
     cfg = BusinessSettings.objects.select_for_update().get(branch=branch)
     if kind == StockAdjustment.Kind.OPENING:
         raise BusinessRuleError("Opening stock is entered on a count sheet and approved by the Owner.", code="use_opening_count")
+    if kind in (StockAdjustment.Kind.DAMAGE, StockAdjustment.Kind.DAMAGE_REVERSAL):
+        raise BusinessRuleError("Use the damaged product workflow for damage and reversals.", code="damage_workflow_required", status_code=400)
     if not cfg.is_live:
         raise BusinessRuleError("Stock adjustments start after the shop goes live. Before that, use the opening stock count.", code="not_live")
 
-    adjustment = StockAdjustment.objects.create(
-        branch=branch, kind=kind, reason=reason, request_key=request_key, created_by=user
-    )
     business_date = current_business_date(branch)
+    product_ids = {product.pk for product, _ in lines}
+    locked_products = {
+        product.pk: product
+        for product in Product.objects.select_for_update().filter(pk__in=product_ids).order_by("pk")
+    }
+    if len(locked_products) != len(product_ids):
+        raise BusinessRuleError("One or more products could not be found.", code="product_not_found", status_code=404)
+
+    try:
+        with transaction.atomic():
+            adjustment = StockAdjustment.objects.create(
+                branch=branch, business_date=business_date, kind=kind, reason=reason,
+                remarks=remarks, evidence_reference=evidence_reference, request_key=request_key, created_by=user,
+            )
+    except IntegrityError:
+        existing = StockAdjustment.objects.filter(request_key=request_key).first()
+        if existing and existing.kind == kind:
+            return existing, False
+        raise
+
     changed = 0
-    for product, counted in sorted(lines, key=lambda line: line[0].pk):
+    audit_lines = {}
+    for submitted_product, counted in sorted(lines, key=lambda line: line[0].pk):
+        product = locked_products[submitted_product.pk]
         counted = Decimal(counted)
         StockBalance.objects.get_or_create(branch=branch, product=product)
         before = StockBalance.objects.select_for_update().get(branch=branch, product=product).quantity
-        StockAdjustmentLine.objects.create(
-            adjustment=adjustment, product=product, quantity_before=before, quantity_counted=counted
-        )
+        damage_fields = {}
+        if kind == StockAdjustment.Kind.DAMAGE:
+            if counted >= before:
+                raise BusinessRuleError(
+                    f"Enter a damaged quantity greater than zero and no more than the available {before.normalize():f} {product.base_unit.lower()}(s).",
+                    code="invalid_damage_quantity", status_code=400,
+                )
+            damaged = before - counted
+            selling_price = money(product.selling_price)
+            average_cost = product.average_cost
+            damage_fields = {
+                "damaged_quantity": damaged,
+                "selling_price_at_damage": selling_price,
+                "damage_value": money(damaged * selling_price),
+                "average_cost_at_damage": average_cost,
+                "inventory_cost_damage_value": None if average_cost is None else money(damaged * average_cost),
+            }
+        movement = None
         if counted != before:
-            post_movement(
+            movement = post_movement(
                 branch=branch, product=product, delta=counted - before, movement_type=InventoryMovement.Type.ADJUSTMENT,
                 source_type="StockAdjustment", source_id=adjustment.pk, user=user,
                 business_date=business_date, reason=reason,
             )
             changed += 1
+        StockAdjustmentLine.objects.create(
+            adjustment=adjustment, product=product, movement=movement,
+            quantity_before=before, quantity_counted=counted, **damage_fields,
+        )
+        audit_lines[str(product.pk)] = (
+            {"stock_before": before, "damaged_quantity": damage_fields["damaged_quantity"], "stock_after": counted,
+             "selling_price": damage_fields["selling_price_at_damage"], "damage_value": damage_fields["damage_value"],
+             "average_cost": damage_fields["average_cost_at_damage"], "inventory_cost_damage_value": damage_fields["inventory_cost_damage_value"]}
+            if kind == StockAdjustment.Kind.DAMAGE else counted
+        )
     audit(user, "stock.adjusted", adjustment,
           summary=f"{adjustment.get_kind_display()}: {len(lines)} products counted, {changed} changed", reason=reason,
-          after={str(p.pk): c for p, c in lines})
+          after={"lines": audit_lines, "remarks": remarks, "evidence_reference": evidence_reference}
+          if kind == StockAdjustment.Kind.DAMAGE else audit_lines)
     return adjustment, True
+
+
+@transaction.atomic
+def record_damage(*, user, reason, request_key, lines, remarks="", evidence_reference=""):
+    """Deduct damaged units once and snapshot their retail and weighted-average cost values."""
+    existing = StockAdjustment.objects.filter(request_key=request_key).first()
+    if existing:
+        if existing.kind != StockAdjustment.Kind.DAMAGE:
+            raise BusinessRuleError("This request key was already used for a different stock change.", code="request_key_reused", status_code=409)
+        return existing, False
+    reason = (reason or "").strip()
+    if len(reason) < 3:
+        raise BusinessRuleError("Write the reason for the damage.", code="reason_required", status_code=400)
+    if not lines:
+        raise BusinessRuleError("Enter at least one damaged product.", code="damage_lines_required", status_code=400)
+    if len({product.pk for product, _ in lines}) != len(lines):
+        raise BusinessRuleError("Each product can appear only once in a damage record.", code="duplicate_product", status_code=400)
+
+    branch = get_branch()
+    cfg = BusinessSettings.objects.select_for_update().get(branch=branch)
+    if not cfg.is_live:
+        raise BusinessRuleError("Damage can be recorded after the shop goes live.", code="not_live")
+    products = {
+        product.pk: product
+        for product in Product.objects.select_for_update().filter(pk__in={p.pk for p, _ in lines}).order_by("pk")
+    }
+    if len(products) != len(lines):
+        raise BusinessRuleError("One or more products could not be found.", code="product_not_found", status_code=404)
+
+    business_date = current_business_date(branch)
+    try:
+        with transaction.atomic():
+            adjustment = StockAdjustment.objects.create(
+                branch=branch, business_date=business_date, kind=StockAdjustment.Kind.DAMAGE, reason=reason,
+                remarks=(remarks or "").strip(), evidence_reference=(evidence_reference or "").strip(),
+                request_key=request_key, created_by=user,
+            )
+    except IntegrityError:
+        existing = StockAdjustment.objects.filter(request_key=request_key).first()
+        if existing and existing.kind == StockAdjustment.Kind.DAMAGE:
+            return existing, False
+        raise
+
+    audit_lines = {}
+    for submitted_product, damaged_value in sorted(lines, key=lambda line: line[0].pk):
+        product = products[submitted_product.pk]
+        damaged = Decimal(damaged_value)
+        if not damaged.is_finite() or damaged <= 0:
+            raise BusinessRuleError("Damaged quantity must be greater than zero.", code="invalid_damage_quantity", status_code=400)
+        StockBalance.objects.get_or_create(branch=branch, product=product)
+        balance = StockBalance.objects.select_for_update().get(branch=branch, product=product)
+        before = balance.quantity
+        if damaged > before:
+            raise BusinessRuleError(
+                f"Cannot damage {damaged.normalize():f} {product.base_unit.lower()}(s); only {before.normalize():f} available.",
+                code="insufficient_stock", status_code=409,
+                details={"product": product.pk, "available": str(before), "damaged": str(damaged)},
+            )
+        after = before - damaged
+        selling_price = money(product.selling_price)
+        average_cost = product.average_cost
+        damage_value = money(damaged * selling_price)
+        cost_value = None if average_cost is None else money(damaged * average_cost)
+        movement = post_movement(
+            branch=branch, product=product, delta=-damaged, movement_type=InventoryMovement.Type.ADJUSTMENT,
+            source_type="StockAdjustment", source_id=adjustment.pk, user=user,
+            business_date=business_date, reason=reason,
+        )
+        StockAdjustmentLine.objects.create(
+            adjustment=adjustment, product=product, movement=movement, quantity_before=before, quantity_counted=after,
+            damaged_quantity=damaged, selling_price_at_damage=selling_price, damage_value=damage_value,
+            average_cost_at_damage=average_cost, inventory_cost_damage_value=cost_value,
+        )
+        audit_lines[str(product.pk)] = {
+            "stock_before": before, "damaged_quantity": damaged, "stock_after": after,
+            "selling_price": selling_price, "damage_value": damage_value,
+            "average_cost": average_cost, "inventory_cost_damage_value": cost_value,
+            "movement": movement.pk,
+        }
+
+    audit(user, "stock.adjusted", adjustment,
+          summary=f"Damaged or expired: {len(lines)} product(s), {len(lines)} movement(s)", reason=reason,
+          after={"lines": audit_lines, "remarks": adjustment.remarks, "evidence_reference": adjustment.evidence_reference})
+    return adjustment, True
+
+
+@transaction.atomic
+def reverse_damage(*, owner, adjustment_id, request_key, reason):
+    """Owner-authorized full reversal. The original damage and its valuation remain immutable."""
+    existing = StockAdjustment.objects.filter(request_key=request_key).first()
+    if existing:
+        if existing.kind != StockAdjustment.Kind.DAMAGE_REVERSAL:
+            raise BusinessRuleError("This request key was already used for a different stock change.", code="request_key_reused", status_code=409)
+        return existing, False
+    reason = (reason or "").strip()
+    if len(reason) < 3:
+        raise BusinessRuleError("Write the reason for reversing this damage record.", code="reason_required", status_code=400)
+
+    branch = get_branch()
+    BusinessSettings.objects.select_for_update().get(branch=branch)
+    original = StockAdjustment.objects.select_for_update().filter(
+        pk=adjustment_id, branch=branch, kind=StockAdjustment.Kind.DAMAGE,
+    ).first()
+    if original is None:
+        raise BusinessRuleError("We could not find that damage record.", code="not_found", status_code=404)
+    if StockAdjustment.objects.filter(reversal_of=original).exists():
+        raise BusinessRuleError("This damage record has already been reversed.", code="already_reversed", status_code=409)
+    lines = list(original.lines.select_related("product").order_by("product_id"))
+    if not lines or any(line.damaged_quantity is None for line in lines):
+        raise BusinessRuleError("This legacy damage record has no complete quantity snapshot and cannot be reversed here.", code="damage_snapshot_missing", status_code=409)
+    products = {
+        product.pk: product
+        for product in Product.objects.select_for_update().filter(pk__in=[line.product_id for line in lines]).order_by("pk")
+    }
+    business_date = current_business_date(branch)
+    reversal = StockAdjustment.objects.create(
+        branch=branch, business_date=business_date, kind=StockAdjustment.Kind.DAMAGE_REVERSAL,
+        reason=reason, remarks=f"Reversal of DR-{original.pk:06d}", request_key=request_key,
+        created_by=owner, reversal_of=original,
+    )
+    audit_lines = {}
+    for line in lines:
+        product = products[line.product_id]
+        quantity = line.damaged_quantity
+        StockBalance.objects.get_or_create(branch=branch, product=product)
+        balance = StockBalance.objects.select_for_update().get(branch=branch, product=product)
+        before = balance.quantity
+        after = before + quantity
+        movement = post_movement(
+            branch=branch, product=product, delta=quantity, movement_type=InventoryMovement.Type.ADJUSTMENT,
+            source_type="StockAdjustment", source_id=reversal.pk, user=owner,
+            business_date=business_date, reason=reason,
+        )
+        StockAdjustmentLine.objects.create(
+            adjustment=reversal, product=product, movement=movement, quantity_before=before, quantity_counted=after,
+        )
+        audit_lines[str(product.pk)] = {
+            "stock_before": before, "restored_quantity": quantity, "stock_after": after, "movement": movement.pk,
+        }
+    audit(owner, "stock.damage_reversed", reversal, reason=reason,
+          summary=f"Reversed damaged-product record DR-{original.pk:06d}",
+          before={"damage_record": original.pk}, after={"reversal_record": reversal.pk, "lines": audit_lines})
+    return reversal, True
 
 
 # --- Opening stock: physical count sheet, then Owner approval -------------------------------

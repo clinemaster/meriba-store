@@ -45,6 +45,9 @@ export async function api<T = unknown>(path: string, options: { method?: string;
       method,
       headers,
       credentials: "same-origin",
+      // Shop data is always fresh, and this also stops a browser replaying a redirect it saved earlier
+      // (one such saved redirect sent /products/table/ round in a loop).
+      cache: "no-store",
       body: options.form ?? (options.body === undefined ? undefined : JSON.stringify(options.body)),
     });
   } catch {

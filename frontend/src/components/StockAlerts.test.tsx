@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { announceDataChanged } from "@/lib/stockLevels";
+import { announceDataChanged, STOCK_LEVELS } from "@/lib/stockLevels";
 
 import { StockAlerts } from "./StockAlerts";
 import { StockBadge } from "./ui";
@@ -17,9 +17,9 @@ describe("stock badge", () => {
   it("never rests on colour alone: icon, word and the quantity", () => {
     render(<StockBadge status="CRITICAL" quantity="5.000" unit="Bottle" />);
     expect(screen.getByText("Critical stock")).toBeInTheDocument();
-    expect(screen.getByText("⚠")).toHaveAttribute("aria-hidden");
+    expect(screen.getByText(STOCK_LEVELS.CRITICAL.icon)).toHaveAttribute("aria-hidden");
     expect(screen.getByText("5 Bottle")).toBeInTheDocument();
-    expect(screen.getByText("Critical stock").className).toContain("bg-red-50");
+    expect(screen.getByText("Critical stock").className).toContain("bg-danger-soft");
   });
 
   it("has a distinct label for each level", () => {

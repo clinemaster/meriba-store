@@ -1,3 +1,7 @@
+from datetime import date
+from decimal import Decimal
+
+from django.db.models import Count, Q, Sum
 from django.db.models import Prefetch
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, serializers
@@ -8,6 +12,9 @@ from accounts.permissions import IsOwner, IsOwnerOrAccountant
 from catalog import stock_levels
 from catalog.models import Product
 from core.errors import BusinessRuleError
+from core.exports import FORMATS, table_response
+from core.pagination import StandardPagination
+from core.services import audit
 from core.services import get_branch
 
 from . import services
@@ -94,7 +101,7 @@ class CountSerializer(serializers.Serializer):
     request_key = serializers.UUIDField()
     reason = serializers.CharField(max_length=300)
     kind = serializers.ChoiceField(
-        choices=[StockAdjustment.Kind.COUNT, StockAdjustment.Kind.DAMAGE, StockAdjustment.Kind.OTHER],
+        choices=[StockAdjustment.Kind.COUNT, StockAdjustment.Kind.OTHER],
         default=StockAdjustment.Kind.COUNT,
     )
     lines = CountLineSerializer(many=True, allow_empty=False)
@@ -121,6 +128,185 @@ class StockAdjustmentView(APIView):
             {"id": adjustment.pk, "kind": adjustment.kind, "lines": adjustment.lines.count(), "already_saved": not created},
             status=201 if created else 200,
         )
+
+
+class DamageLineInput(serializers.Serializer):
+    product = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all())
+    quantity = serializers.DecimalField(max_digits=14, decimal_places=3, min_value=Decimal("0.001"))
+
+
+class DamageRecordInput(serializers.Serializer):
+    request_key = serializers.UUIDField()
+    reason = serializers.CharField(max_length=300, min_length=3)
+    remarks = serializers.CharField(max_length=500, required=False, allow_blank=True, default="")
+    evidence_reference = serializers.CharField(max_length=300, required=False, allow_blank=True, default="")
+    lines = DamageLineInput(many=True, allow_empty=False)
+
+    def validate_lines(self, lines):
+        return _unique_products(lines)
+
+
+class DamageReverseInput(serializers.Serializer):
+    request_key = serializers.UUIDField()
+    reason = serializers.CharField(max_length=300, min_length=3)
+
+
+def _damage_range(params):
+    try:
+        start = date.fromisoformat(params["date_from"]) if params.get("date_from") else None
+        end = date.fromisoformat(params["date_to"]) if params.get("date_to") else None
+    except ValueError:
+        raise BusinessRuleError("Choose valid dates.", code="bad_date", status_code=400)
+    if start and end and start > end:
+        raise BusinessRuleError("The 'from' date must be on or before the 'to' date.", code="bad_date", status_code=400)
+    return start, end
+
+
+def _damage_register_queryset(params):
+    from .models import StockAdjustmentLine
+
+    rows = (StockAdjustmentLine.objects.filter(
+        adjustment__branch=get_branch(), adjustment__kind=StockAdjustment.Kind.DAMAGE, damaged_quantity__isnull=False,
+    ).select_related("adjustment", "adjustment__branch", "adjustment__created_by", "adjustment__reversal", "product", "movement"))
+    start, end = _damage_range(params)
+    if start:
+        rows = rows.filter(adjustment__business_date__gte=start)
+    if end:
+        rows = rows.filter(adjustment__business_date__lte=end)
+    product = (params.get("product") or "").strip()
+    if product.isdigit():
+        rows = rows.filter(product_id=int(product))
+    elif product:
+        rows = rows.filter(Q(product__name__icontains=product) | Q(product__sku__icontains=product))
+    reason = (params.get("reason") or "").strip()
+    if reason:
+        rows = rows.filter(Q(adjustment__reason__icontains=reason) | Q(adjustment__remarks__icontains=reason))
+    status = params.get("status")
+    if status == "CONFIRMED":
+        rows = rows.filter(adjustment__reversal__isnull=True)
+    elif status == "REVERSED":
+        rows = rows.filter(adjustment__reversal__isnull=False)
+    return rows.order_by("-adjustment__created_at", "-id")
+
+
+def _damage_register_row(line):
+    adjustment = line.adjustment
+    return {
+        "adjustment_id": adjustment.pk,
+        "line_id": line.pk,
+        "date": adjustment.business_date,
+        "created_at": adjustment.created_at,
+        "reference": f"DR-{adjustment.pk:06d}",
+        "product": str(line.product),
+        "unit": line.product.base_unit,
+        "branch": adjustment.branch.name,
+        "stock_before": line.quantity_before,
+        "damaged_quantity": line.damaged_quantity,
+        "stock_after": line.quantity_counted,
+        "selling_price": line.selling_price_at_damage,
+        "damage_value": line.damage_value,
+        "average_cost": line.average_cost_at_damage,
+        "inventory_cost_value": line.inventory_cost_damage_value,
+        "reason": adjustment.reason,
+        "remarks": adjustment.remarks,
+        "evidence_reference": adjustment.evidence_reference,
+        "recorded_by": adjustment.created_by.display_name,
+        "confirmed_by": adjustment.created_by.display_name,
+        "status": "Reversed" if hasattr(adjustment, "reversal") else "Confirmed",
+        "movement": line.movement_id,
+    }
+
+
+class DamageRecordView(APIView):
+    """Record confirmed damage and list the branch-scoped, immutable damage register."""
+
+    permission_classes = [IsOwnerOrAccountant]
+
+    @extend_schema(request=DamageRecordInput, responses={201: dict})
+    def post(self, request):
+        from . import services
+
+        serializer = DamageRecordInput(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        adjustment, created = services.record_damage(
+            user=request.user, reason=data["reason"], request_key=data["request_key"],
+            lines=[(line["product"], line["quantity"]) for line in data["lines"]],
+            remarks=data["remarks"], evidence_reference=data["evidence_reference"],
+        )
+        lines = list(adjustment.lines.select_related("product"))
+        return Response({
+            "id": adjustment.pk, "reference": f"DR-{adjustment.pk:06d}", "status": "CONFIRMED",
+            "already_saved": not created,
+            "products": len(lines),
+            "damaged_quantity": str(sum((line.damaged_quantity or Decimal("0") for line in lines), Decimal("0"))),
+            "damage_value": str(sum((line.damage_value or Decimal("0") for line in lines), Decimal("0"))),
+            "inventory_cost_value": None if any(line.inventory_cost_damage_value is None for line in lines)
+            else str(sum((line.inventory_cost_damage_value for line in lines), Decimal("0"))),
+        }, status=201 if created else 200)
+
+    @extend_schema(responses={200: dict})
+    def get(self, request):
+        queryset = _damage_register_queryset(request.query_params)
+        unreversed = queryset.filter(adjustment__reversal__isnull=True)
+        summary = {
+            "records": unreversed.values("adjustment_id").distinct().count(),
+            "products": unreversed.values("product_id").distinct().count(),
+            "damaged_quantity": unreversed.aggregate(value=Sum("damaged_quantity"))["value"] or Decimal("0"),
+            "damage_value": unreversed.aggregate(value=Sum("damage_value"))["value"] or Decimal("0"),
+            "inventory_cost_value": unreversed.aggregate(value=Sum("inventory_cost_damage_value"))["value"],
+        }
+        columns = [
+            {"key": "date", "label": "Business day", "kind": "date"},
+            {"key": "created_at", "label": "Date and time", "kind": "date"},
+            {"key": "reference", "label": "Reference", "kind": "text"},
+            {"key": "product", "label": "Product", "kind": "text"},
+            {"key": "branch", "label": "Branch", "kind": "text"},
+            {"key": "stock_before", "label": "Previous stock", "kind": "quantity"},
+            {"key": "damaged_quantity", "label": "Damaged quantity", "kind": "quantity"},
+            {"key": "stock_after", "label": "Remaining stock", "kind": "quantity"},
+            {"key": "selling_price", "label": "Selling price", "kind": "money"},
+            {"key": "damage_value", "label": "Damage at selling price", "kind": "money"},
+            {"key": "average_cost", "label": "Average unit cost", "kind": "money"},
+            {"key": "inventory_cost_value", "label": "Inventory cost of damage", "kind": "money"},
+            {"key": "reason", "label": "Reason", "kind": "text"},
+            {"key": "remarks", "label": "Remarks", "kind": "text"},
+            {"key": "evidence_reference", "label": "Evidence", "kind": "text"},
+            {"key": "recorded_by", "label": "Recorded by", "kind": "text"},
+            {"key": "confirmed_by", "label": "Confirmed by", "kind": "text"},
+            {"key": "status", "label": "Status", "kind": "text"},
+            {"key": "movement", "label": "Movement ID", "kind": "number"},
+        ]
+        fmt = request.query_params.get("download")
+        if fmt:
+            if fmt not in FORMATS:
+                raise BusinessRuleError("Choose CSV or Excel.", code="bad_format", status_code=400)
+            rows = [_damage_register_row(line) for line in queryset]
+            totals = {
+                "damaged_quantity": summary["damaged_quantity"], "damage_value": summary["damage_value"],
+                "inventory_cost_value": summary["inventory_cost_value"],
+            }
+            audit(request.user, "report.exported", summary=f"Exported damaged product register ({fmt})")
+            return table_response(fmt, "meriba_damaged_products", columns, rows, totals, title="Damaged products")
+
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(queryset, request, view=self)
+        response = paginator.get_paginated_response([_damage_register_row(line) for line in page])
+        response.data["summary"] = summary
+        return response
+
+
+class DamageReversalView(APIView):
+    permission_classes = [IsOwner]
+
+    @extend_schema(request=DamageReverseInput, responses={201: dict})
+    def post(self, request, pk):
+        from . import services
+
+        serializer = DamageReverseInput(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        reversal, created = services.reverse_damage(owner=request.user, adjustment_id=pk, **serializer.validated_data)
+        return Response({"id": reversal.pk, "already_saved": not created, "status": "REVERSED"}, status=201 if created else 200)
 
 
 # --- Opening stock count sheets -------------------------------------------------------------

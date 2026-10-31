@@ -40,6 +40,9 @@ class BusinessDay(models.Model):
     opened_at = models.DateTimeField(auto_now_add=True)
     closed_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
     closed_at = models.DateTimeField(null=True, blank=True)
+    # The payment reconciliation (collections by category and provider, refunds, differences) as it stood at closing.
+    # Kept as written: later corrections to payments or providers never rewrite it.
+    payment_snapshot = models.JSONField(null=True, blank=True)
 
     class Meta:
         ordering = ["-date"]
@@ -206,6 +209,8 @@ class ShiftPaymentTotal(models.Model):
     recorded_amount = models.DecimalField(max_digits=16, decimal_places=2)
     transaction_count = models.PositiveIntegerField(default=0)
     is_verified = models.BooleanField(default=False)
+    # Per provider, frozen at closing: [{"provider": id|null, "name": "M-PESA", "amount": "3000.00", "count": 2}].
+    provider_breakdown = models.JSONField(default=list, blank=True)
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["shift", "payment_method"], name="shift_payment_total_once")]

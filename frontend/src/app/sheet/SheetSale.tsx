@@ -2,11 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { PaymentLines } from "@/components/PaymentLines";
 import { Receipt } from "@/components/Receipt";
 import { ShareReceipt } from "@/components/ShareReceipt";
 import { Alert, Modal, Spinner } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
 import { centsToApi, formatQty, formatTZS, settle, toCents } from "@/lib/money";
+import { allocationProblem, duplicateAllocation, newAllocation, usableCategories, type Allocation } from "@/lib/payments";
 import type { PaymentMethod, Product, Sale, ShopSettings } from "@/lib/types";
 import { useLoad } from "@/lib/useLoad";
 
@@ -27,19 +29,17 @@ export function SheetSale({ line, quantity: typed, onClose, onSaved }: {
   const [quantity, setQuantity] = useState(String(typed));
   const [unitId, setUnitId] = useState<number | null>(null);
   const [split, setSplit] = useState(false);
-  const [methodId, setMethodId] = useState<number | null>(null);
-  const [amounts, setAmounts] = useState<Record<number, string>>({});
-  const [references, setReferences] = useState<Record<number, string>>({});
+  const [lines, setLines] = useState<Allocation[]>([]);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [done, setDone] = useState<Sale | null>(null);
   // One key for this entry. It stays the same while it is retried, so it can only ever be saved once.
   const requestKey = useRef(crypto.randomUUID());
 
-  const active = useMemo(() => (methods.data ?? []).filter((m) => m.is_active), [methods.data]);
+  const active = useMemo(() => usableCategories(methods.data), [methods.data]);
   useEffect(() => {
-    if (methodId === null && active.length) setMethodId((active.find((m) => m.is_cash) ?? active[0]).id);
-  }, [active, methodId]);
+    if (lines.length === 0 && active.length) setLines([newAllocation((active.find((m) => m.is_cash) ?? active[0]).id)]);
+  }, [active, lines.length]);
 
   const packs = product.data?.units ?? [];
   const pack = packs.find((u) => u.id === unitId) ?? null;
@@ -51,15 +51,19 @@ export function SheetSale({ line, quantity: typed, onClose, onSaved }: {
   const totalCents = count > 0 ? count * priceCents : 0;
   const stockProblem = count > 0 && needed > left ? `Only ${formatQty(left)} of ${line.details} left in stock.` : null;
 
-  const shown = active.filter((m) => (split ? true : m.id === methodId));
-  const tenders = shown.map((m) => {
-    const value = amounts[m.id];
+  const tenders = lines.map((line) => {
+    const method = active.find((m) => m.id === line.methodId);
     // Paying by one method: an empty box means "the exact total".
-    const cents = !split && (value === undefined || value === "") ? totalCents : toCents(value);
-    return { methodId: m.id, isCash: m.is_cash, cents };
+    const cents = !split && line.amount === "" ? totalCents : toCents(line.amount);
+    return { line, methodId: line.methodId ?? 0, isCash: !!method?.is_cash, cents };
   });
   const settlement = settle(totalCents, tenders);
-  const ready = count > 0 && !stockProblem && settlement.ok && !busy;
+  const lineProblem = lines.map((l) => allocationProblem(l, active)).find((p) => p !== null)
+    ?? (duplicateAllocation(lines) ? "The same payment method and provider appears twice. Put the whole amount on one line." : null);
+  // Both are shown: what is still owed, and what a payment line is missing.
+  const paymentProblems = [settlement.ok ? null : settlement.problem, lineProblem].filter((p): p is string => !!p);
+  const paymentProblem = paymentProblems[0] ?? null;
+  const ready = count > 0 && !stockProblem && paymentProblem === null && !busy;
 
   async function save() {
     if (!ready) return;
@@ -71,7 +75,10 @@ export function SheetSale({ line, quantity: typed, onClose, onSaved }: {
         body: {
           request_key: requestKey.current,
           items: [{ product: line.product, quantity: count, ...(pack ? { unit: pack.id } : {}) }],
-          payments: tenders.filter((t) => t.cents > 0).map((t) => ({ method: t.methodId, amount: centsToApi(t.cents), reference: references[t.methodId] ?? "" })),
+          payments: tenders.filter((t) => t.cents > 0).map((t) => ({
+            method: t.methodId, amount: centsToApi(t.cents), reference: t.line.reference,
+            ...(t.line.providerId ? { provider: t.line.providerId } : {}),
+          })),
         },
       });
       setDone(sale);
@@ -131,49 +138,35 @@ export function SheetSale({ line, quantity: typed, onClose, onSaved }: {
 
         <div>
           <p className="mb-2 font-semibold">How is the customer paying?</p>
-          {methods.loading ? <Spinner /> : !split ? (
-            <div role="radiogroup" aria-label="Payment method" className="grid grid-cols-3 gap-2">
-              {active.map((m) => (
-                <button key={m.id} type="button" role="radio" aria-checked={methodId === m.id} onClick={() => setMethodId(m.id)}
-                  className={`btn min-h-[3.5rem] border-2 px-2 ${methodId === m.id ? "border-brand-700 bg-brand-600 text-white" : "border-slate-300 bg-white"}`}>
-                  {methodId === m.id ? "✔ " : ""}{m.name}
-                </button>
-              ))}
-            </div>
-          ) : null}
-          <div className="mt-3 space-y-3">
-            {shown.map((m) => (
-              <div key={m.id} className="grid grid-cols-2 gap-2">
-                <div>
-                  <label htmlFor={`amount-${m.id}`} className="mb-1 block text-sm font-semibold">{m.is_cash ? "Cash received (TZS)" : `${m.name} amount (TZS)`}</label>
-                  <input id={`amount-${m.id}`} className="input" inputMode="numeric" value={amounts[m.id] ?? ""}
-                    placeholder={split ? "0" : formatTZS(totalCents, true).replace("TZS ", "")}
-                    onChange={(e) => setAmounts((a) => ({ ...a, [m.id]: e.target.value }))} />
-                </div>
-                {!m.is_cash && (
-                  <div>
-                    <label htmlFor={`ref-${m.id}`} className="mb-1 block text-sm font-semibold">{m.reference_label || "Reference"} (optional)</label>
-                    <input id={`ref-${m.id}`} className="input" value={references[m.id] ?? ""} maxLength={60} onChange={(e) => setReferences((r) => ({ ...r, [m.id]: e.target.value }))} />
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
+          {methods.loading && !methods.data ? <Spinner /> : active.length === 0 ? (
+            <Alert kind="error">No payment method is switched on. Ask the Owner to check Settings → Payment methods.</Alert>
+          ) : (
+            <PaymentLines methods={active} lines={lines} onChange={setLines} totalCents={totalCents} split={split} />
+          )}
+          {split && (
+            <button type="button" className="btn-secondary mt-2 min-h-[2.5rem]" onClick={() => setLines((l) => [...l, newAllocation()])}>+ Add another payment</button>
+          )}
           {shop.data?.split_payments_enabled && active.length > 1 && (
-            <button type="button" className="mt-2 text-sm font-semibold text-brand-700 underline" onClick={() => { setSplit((s) => !s); setAmounts({}); }}>
+            <button type="button" className="mt-2 block text-sm font-semibold text-brand-700 underline" onClick={() => {
+              // One method: keep the first line. More than one: keep it and add an empty second line to fill in.
+              setLines((l) => (split ? l.slice(0, 1).map((x) => ({ ...x, amount: "" })) : [{ ...l[0], amount: "" }, newAllocation()]));
+              setSplit((s) => !s);
+            }}>
               {split ? "Pay with one method only" : "Customer is paying with more than one method"}
             </button>
           )}
         </div>
 
         {stockProblem ? <Alert kind="error">{stockProblem}</Alert> : count > 0 && (
-          settlement.changeCents > 0 && settlement.ok ? (
+          settlement.changeCents > 0 && paymentProblem === null ? (
             <div className="flex items-baseline justify-between rounded-lg border-2 border-amber-400 bg-amber-50 px-4 py-2">
               <span className="font-semibold">Change to give back</span>
               <span className="text-2xl font-bold tabular-nums">{formatTZS(settlement.changeCents, true)}</span>
             </div>
-          ) : !settlement.ok ? (
-            <p className="rounded-lg border-2 border-red-300 bg-red-50 px-4 py-2 font-semibold text-red-900">⚠ {settlement.problem}</p>
+          ) : paymentProblem ? (
+            <div className="space-y-1 rounded-lg border-2 border-red-300 bg-red-50 px-4 py-2 font-semibold text-red-900">
+              {paymentProblems.map((p) => <p key={p}>⚠ {p}</p>)}
+            </div>
           ) : null
         )}
         {problem && <Alert kind="error">{problem}</Alert>}

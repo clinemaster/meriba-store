@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Alert, Field, Modal, PageTitle, Spinner, Stat, StatusBadge } from "@/components/ui";
 import { api, errorMessage } from "@/lib/api";
 import { centsToApi, formatDate, formatTZS, toCents } from "@/lib/money";
+import { iconFor } from "@/lib/payments";
 import type { CurrentDay, Shift } from "@/lib/types";
 import { useLoad } from "@/lib/useLoad";
 
@@ -38,6 +39,7 @@ export default function CloseDayPage() {
   const [counted, setCounted] = useState("");
   const [note, setNote] = useState("");
   const [confirming, setConfirming] = useState(false);
+  const [reviewed, setReviewed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [closed, setClosed] = useState<Shift | null>(null);
@@ -70,7 +72,7 @@ export default function CloseDayPage() {
     setBusy(true);
     setProblem(null);
     try {
-      setClosed(await api<Shift>(`/shifts/${shift.id}/close/`, { method: "POST", body: { counted_cash: centsToApi(countedCents), note } }));
+      setClosed(await api<Shift>(`/shifts/${shift.id}/close/`, { method: "POST", body: { counted_cash: centsToApi(countedCents), note, payments_reviewed: reviewed } }));
     } catch (err) {
       setProblem(errorMessage(err));
       setConfirming(false);
@@ -87,8 +89,28 @@ export default function CloseDayPage() {
         <h2 className="mb-3 text-xl font-bold">Step 1 · Check your sales</h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Stat label="Your sales today" value={formatTZS(f.sales_total)} note={`${f.sale_count} sales`} strong />
-          {f.payments.map((p) => <Stat key={p.method} label={`Paid by ${p.name}`} value={formatTZS(p.amount)} note={`${p.count} sales`} />)}
+          {f.payments.map((p) => <Stat key={p.method} label={`${iconFor(p.icon)} Paid by ${p.name}`} value={formatTZS(p.amount)} note={`${p.count} sales`} />)}
         </div>
+        {f.payments.some((p) => (p.providers ?? []).length > 0) && (
+          <div className="mt-4">
+            <h3 className="mb-2 font-bold">Mobile money and bank, by provider</h3>
+            <p className="mb-2 text-sm text-slate-600">Check each figure against the phone or the bank statement.</p>
+            <table className="table max-w-xl" aria-label="Payments by provider">
+              <tbody>
+                {f.payments.filter((p) => (p.providers ?? []).length > 0).flatMap((p) => [
+                  <tr key={`c${p.method}`} className="bg-slate-50 font-semibold"><td>{p.name}</td><td className="num">{formatTZS(p.amount)}</td></tr>,
+                  ...(p.providers ?? []).map((x) => (
+                    <tr key={`p${p.method}-${x.provider ?? "none"}`}><td className="pl-6">— {x.name} <span className="text-sm text-slate-600">({x.count})</span></td><td className="num">{formatTZS(x.amount)}</td></tr>
+                  )),
+                ])}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <label className="mt-4 flex items-start gap-3 rounded-lg border-2 border-slate-300 p-3">
+          <input type="checkbox" className="mt-1 h-6 w-6" checked={reviewed} onChange={(e) => setReviewed(e.target.checked)} />
+          <span><span className="font-semibold">I have checked the payment breakdown</span> (cash, each mobile money provider and each bank).</span>
+        </label>
         {f.voided_count > 0 && <p className="mt-3 text-slate-700">{f.voided_count} cancelled sale(s) worth {formatTZS(f.voided_total)} are not included.</p>}
         <p className="mt-3 text-sm text-slate-600">Something missing or wrong? <Link href="/sales" className="font-semibold underline">Look at today&apos;s sales</Link> and tell the Accountant before closing.</p>
       </section>
@@ -110,7 +132,7 @@ export default function CloseDayPage() {
             <div className={`rounded-lg border-2 p-4 ${variance === 0 ? "border-green-300 bg-green-50" : "border-amber-400 bg-amber-50"}`} role="status">
               <div className="text-sm font-semibold">Difference</div>
               <div className="text-2xl font-bold tabular-nums">
-                {variance === 0 ? "✔ No difference" : variance < 0 ? `⚠ Short by ${formatTZS(-variance, true)}` : `⚠ Over by ${formatTZS(variance, true)}`}
+                {variance === 0 ? "✔\uFE0E No difference" : variance < 0 ? `⚠\uFE0E Short by ${formatTZS(-variance, true)}` : `⚠\uFE0E Over by ${formatTZS(variance, true)}`}
               </div>
             </div>
           )}
@@ -133,8 +155,9 @@ export default function CloseDayPage() {
           </p>
         )}
         {problem && <div className="mb-3"><Alert kind="error">{problem}</Alert></div>}
-        <button className="btn-primary" disabled={!hasCount || (needsNote && note.trim() === "")} onClick={() => setConfirming(true)}>Review and Close…</button>
+        <button className="btn-primary" disabled={!hasCount || !reviewed || (needsNote && note.trim() === "")} onClick={() => setConfirming(true)}>Review and Close…</button>
         {!hasCount && <p className="mt-2 text-sm text-slate-600">Enter the cash you counted to continue.</p>}
+        {hasCount && !reviewed && <p className="mt-2 text-sm text-slate-600">Tick “I have checked the payment breakdown” in Step 1 to continue.</p>}
       </section>
 
       {confirming && (

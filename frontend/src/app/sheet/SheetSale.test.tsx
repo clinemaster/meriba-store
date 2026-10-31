@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -19,6 +19,15 @@ const savedSale = {
 };
 
 const json = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }));
+const provider = (id: number, category: number, name: string) => ({ id, category, category_name: "", code: name.toLowerCase(), name, description: "", is_active: true, sort_order: id, created_at: "", updated_at: "", in_use: false });
+// As the server sends them to a cashier: only what is switched on.
+const methods = [
+  { id: 1, code: "cash", name: "Cash", icon: "cash", is_cash: true, requires_provider: false, reference_label: "", is_active: true, providers: [] },
+  { id: 2, code: "mobile-money", name: "Mobile Money", icon: "phone", is_cash: false, requires_provider: true, reference_label: "Transaction ID", is_active: true,
+    providers: [provider(21, 2, "M-PESA"), provider(22, 2, "Mixx by Yas"), provider(23, 2, "Airtel Money")] },
+  { id: 3, code: "bank", name: "Bank", icon: "bank", is_cash: false, requires_provider: true, reference_label: "Bank reference", is_active: true,
+    providers: [provider(31, 3, "NMB"), provider(32, 3, "CRDB")] },
+];
 let salePosts: { request_key: string; items: unknown[]; payments: unknown[] }[];
 let saleResponder: () => Promise<Response>;
 let onSaved: ReturnType<typeof vi.fn>;
@@ -35,10 +44,7 @@ beforeEach(() => {
       salePosts.push(JSON.parse(String(init.body)));
       return saleResponder();
     }
-    if (url.includes("/payment-methods/")) return json([
-      { id: 1, code: "cash", name: "Cash", is_cash: true, reference_label: "", is_active: true },
-      { id: 2, code: "mobile-money", name: "Mobile Money", is_cash: false, reference_label: "Transaction ID", is_active: true },
-    ]);
+    if (url.includes("/payment-methods/")) return json(methods);
     if (url.includes("/settings/")) return json({ branch_name: "MERIBA Main Branch", receipt_header: "MERIBA STORE", receipt_footer: "", split_payments_enabled: true });
     if (url.includes("/products/7/")) return json(product);
     return json({ message: "not mocked" }, 404);
@@ -130,15 +136,73 @@ describe("a sale typed on the Daily Sheet", () => {
     expect(salePosts[0].items).toEqual([{ product: 7, quantity: 2, unit: 9 }]);
   });
 
-  it("takes part in cash and part by mobile money", async () => {
+  it("records cash without asking for a provider", async () => {
+    const user = userEvent.setup();
+    await open();
+    expect(screen.queryByText(/Which/)).not.toBeInTheDocument();
+    await user.click(saveButton());
+    await waitFor(() => expect(salePosts).toHaveLength(1));
+    expect(salePosts[0].payments).toEqual([{ method: 1, amount: "9000.00", reference: "" }]);
+  });
+
+  it("asks which mobile money provider was used and will not save without one", async () => {
+    const user = userEvent.setup();
+    await open();
+    await user.click(screen.getByRole("radio", { name: /Mobile Money/ }));
+    expect(screen.getByRole("radio", { name: "M-PESA" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Airtel Money" })).toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "NMB" })).not.toBeInTheDocument();
+    expect(screen.getByText(/Choose the Mobile Money provider/)).toBeInTheDocument();
+    expect(saveButton()).toBeDisabled();
+    await user.click(screen.getByRole("radio", { name: "Mixx by Yas" }));
+    await user.type(screen.getByLabelText("Transaction ID (optional)"), "QX7781");
+    await user.click(saveButton());
+    await waitFor(() => expect(salePosts).toHaveLength(1));
+    expect(salePosts[0].payments).toEqual([{ method: 2, provider: 22, amount: "9000.00", reference: "QX7781" }]);
+  });
+
+  it("shows the banks for Bank and forgets the provider when the category changes", async () => {
+    const user = userEvent.setup();
+    await open();
+    await user.click(screen.getByRole("radio", { name: /Bank/ }));
+    await user.click(screen.getByRole("radio", { name: "CRDB" }));
+    await user.click(screen.getByRole("radio", { name: /Mobile Money/ }));
+    expect(saveButton()).toBeDisabled();
+    expect(screen.queryByRole("radio", { name: "CRDB" })).not.toBeInTheDocument();
+  });
+
+  it("splits one sale over cash, M-PESA and a bank", async () => {
+    const user = userEvent.setup();
+    await open(4); // 18,000
+    await user.click(screen.getByRole("button", { name: "Customer is paying with more than one method" }));
+    await user.type(screen.getByLabelText("Cash received (TZS)"), "8000");
+    const second = screen.getByRole("radiogroup", { name: "Payment 2 method" });
+    await user.click(within(second).getByRole("radio", { name: /Mobile Money/ }));
+    await user.click(screen.getByRole("radio", { name: "M-PESA" }));
+    await user.type(screen.getByLabelText("Mobile Money · M-PESA amount (TZS)"), "6000");
+    expect(screen.getByText(/Still to pay: TZS 4,000/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "+ Add another payment" }));
+    await user.click(within(screen.getByRole("radiogroup", { name: "Payment 3 method" })).getByRole("radio", { name: /Bank/ }));
+    await user.click(screen.getByRole("radio", { name: "NMB" }));
+    await user.type(screen.getByLabelText("Bank · NMB amount (TZS)"), "4000");
+    await user.click(saveButton());
+    await waitFor(() => expect(salePosts).toHaveLength(1));
+    expect(salePosts[0].payments).toEqual([
+      { method: 1, amount: "8000.00", reference: "" },
+      { method: 2, provider: 21, amount: "6000.00", reference: "" },
+      { method: 3, provider: 31, amount: "4000.00", reference: "" },
+    ]);
+  });
+
+  it("refuses the same provider twice in one sale", async () => {
     const user = userEvent.setup();
     await open();
     await user.click(screen.getByRole("button", { name: "Customer is paying with more than one method" }));
-    await user.type(screen.getByLabelText("Cash received (TZS)"), "4000");
+    await user.click(within(screen.getByRole("radiogroup", { name: "Payment 1 method" })).getByRole("radio", { name: /Mobile Money/ }));
+    await user.click(within(screen.getAllByTestId("payment-line")[0]).getByRole("radio", { name: "M-PESA" }));
+    await user.click(within(screen.getByRole("radiogroup", { name: "Payment 2 method" })).getByRole("radio", { name: /Mobile Money/ }));
+    await user.click(within(screen.getAllByTestId("payment-line")[1]).getByRole("radio", { name: "M-PESA" }));
+    expect(screen.getByText(/appears twice/)).toBeInTheDocument();
     expect(saveButton()).toBeDisabled();
-    await user.type(screen.getByLabelText("Mobile Money amount (TZS)"), "5000");
-    await user.click(saveButton());
-    await waitFor(() => expect(salePosts).toHaveLength(1));
-    expect(salePosts[0].payments).toEqual([{ method: 1, amount: "4000.00", reference: "" }, { method: 2, amount: "5000.00", reference: "" }]);
   });
 });

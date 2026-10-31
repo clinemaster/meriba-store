@@ -181,7 +181,7 @@ function OpeningCountSheet({ products, reloadProducts }: { products: Product[]; 
                     setProblem(null);
                     confirm({
                       message: `Reject this count sheet of ${pending.lines.length} product(s)? Nothing becomes stock, and the products must be counted again on a new sheet.`,
-                      yes: "Yes, reject",
+                      yes: "Yes, reject", danger: true,
                       run: () => run(() => api(`/stock/opening-counts/${pending.id}/review/`, { method: "POST", body: { approve: false, note: reviewNote } }), "Count sheet rejected. Start a new sheet for the recount."),
                     });
                   }}>

@@ -40,15 +40,25 @@ export type ProductDetails = {
   changes: { when: string; by: string; what: string; before: unknown; after: unknown }[];
 };
 
-export type PaymentMethod = { id: number; code: string; name: string; is_cash: boolean; reference_label: string; is_active: boolean };
+export type PaymentProvider = {
+  id: number; category: number; category_name: string; code: string; name: string; description: string;
+  is_active: boolean; sort_order: number; created_at: string; updated_at: string; in_use: boolean;
+};
+
+/** A payment category (Cash, Mobile Money, Bank, ...). Cashiers receive only the categories and providers switched on. */
+export type PaymentMethod = {
+  id: number; code: string; name: string; description?: string; icon?: string; is_cash: boolean; requires_provider?: boolean;
+  reference_label: string; is_active: boolean; sort_order?: number; providers?: PaymentProvider[]; in_use?: boolean;
+  created_at?: string; updated_at?: string;
+};
 
 export type Sale = {
   id: number; receipt_number: string; status: "COMPLETED" | "VOIDED"; status_label: string; business_date: string;
   created_at: string; cashier_name: string; subtotal: string; total: string; amount_tendered: string; change_due: string;
   items: { id: number; product_name: string; unit_name: string; quantity: string; unit_price: string; line_total: string; refunded_quantity?: string }[];
-  payments: { id: number; method_name: string; is_cash: boolean; amount: string; tendered: string; reference: string; status: string }[];
+  payments: { id: number; method_name: string; is_cash: boolean; amount: string; tendered: string; reference: string; status: string; provider_name?: string; method_icon?: string }[];
   void_reason: string; voided_by_name: string; already_saved?: boolean; refunded_total?: string;
-  refunds?: { id: number; business_date: string; total: string; method_name: string; reason: string; created_by_name: string }[];
+  refunds?: { id: number; business_date: string; total: string; method_name: string; provider_name?: string; reason: string; created_by_name: string }[];
 };
 
 export type Day = {
@@ -58,9 +68,54 @@ export type Day = {
   corrections: { id: number; amount: string; reason: string; created_at: string; authorised_by: string; closing_before: string; closing_after: string }[];
   /** Owner changes to this day's opening balance, newest first. */
   opening_changes: { id: number; opening_before: string; opening_after: string; reason: string; created_at: string; authorised_by: string }[];
+  /** The payment reconciliation kept when the day was closed. */
+  payment_snapshot?: { metrics: PaymentMetrics; categories: PaymentCategoryTotal[] } | null;
 };
 
-export type PaymentTotal = { method: number; name: string; is_cash: boolean; amount: string; count: number; is_verified?: boolean; code?: string };
+export type PaymentMetrics = {
+  sale_count: number; voided_count: number; payment_count: number; refund_count: number;
+  gross_sales: string; discounts: string; cancellations: string; refunds: string; adjustments: string; net_sales: string;
+  payments_collected: string; refunds_issued: string; net_collections: string; outstanding_receivables: string;
+  expected_collections: string; reconciliation_difference: string;
+};
+
+export type PaymentLine = {
+  id: number | null; name: string; is_active: boolean; amount: string; count: number; verified: string; refunds: string; refund_count: number; net: string;
+};
+
+export type PaymentCategoryTotal = PaymentLine & {
+  code: string; icon: string; is_cash: boolean; requires_provider: boolean; providers: PaymentLine[]; unassigned: number;
+};
+
+export type PaymentFilters = {
+  date_from: string; date_to: string; category: number | "none" | null; provider: number | "none" | null; branch: number | null;
+  cashier: number | null; status: string; search: string;
+};
+
+export type PaymentSummary = {
+  filters: PaymentFilters; metrics: PaymentMetrics; categories: PaymentCategoryTotal[]; group: "day" | "week" | "month";
+  trend: { period: string; label: string; total: string; by_category: Record<string, string> }[];
+  checks: { providers_match_categories: boolean; categories_match_total: boolean; reconciled: boolean };
+  options: { branches: { id: number; name: string }[]; cashiers?: { id: number; name: string }[] };
+  unassigned_total?: number; today: string;
+};
+
+export type PaymentTransaction = {
+  id: number; kind: "payment" | "refund"; number: string; sale: number; receipt_number: string; date_time: string; business_date: string;
+  cashier: string; branch: string; category_id: number; category: string; category_icon: string; provider_id: number | null; provider: string;
+  amount: string; reference: string; status_code: string; status: string; needs_provider: boolean; reason?: string;
+};
+
+export type PaymentTransactionPage = {
+  kind: "payment" | "refund"; count: number; page: number; page_size: number; pages: number;
+  totals: { amount: string; count: number }; filters: PaymentFilters; results: PaymentTransaction[];
+};
+
+export type ProviderTotal = { provider: number | null; name: string; amount: string; count: number };
+export type PaymentTotal = {
+  method: number; name: string; is_cash: boolean; amount: string; count: number; is_verified?: boolean; code?: string; icon?: string;
+  providers?: ProviderTotal[];
+};
 
 export type Shift = {
   id: number; business_date: string; cashier: number; cashier_name: string; status: string; status_label: string;

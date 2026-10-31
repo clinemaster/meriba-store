@@ -9,10 +9,11 @@ import type { StockStatus } from "./types";
  * so it never rests on colour alone. The level itself is decided on the server (catalog/stock_levels.py).
  */
 export const STOCK_LEVELS: Record<StockStatus, { label: string; icon: string; tone: string; tile: string }> = {
-  IN_STOCK: { label: "Healthy", icon: "✔", tone: "border-green-300 bg-green-50 text-green-900", tile: "border-green-300 bg-green-50" },
-  LOW_STOCK: { label: "Low stock", icon: "!", tone: "border-amber-300 bg-amber-50 text-amber-900", tile: "border-amber-300 bg-amber-50" },
-  CRITICAL: { label: "Critical stock", icon: "⚠", tone: "border-red-300 bg-red-50 text-red-900", tile: "border-red-300 bg-red-50" },
-  OUT_OF_STOCK: { label: "Out of stock", icon: "✕", tone: "border-red-400 bg-red-100 text-red-950", tile: "border-red-400 bg-red-100" },
+  IN_STOCK: { label: "Healthy", icon: "✔\uFE0E", tone: "border-success-line bg-success-soft text-success-ink", tile: "border-success-line border-l-success bg-success-soft" },
+  LOW_STOCK: { label: "Low stock", icon: "!", tone: "border-warning-line bg-warning-soft text-warning-ink", tile: "border-warning-line border-l-warning bg-warning-soft" },
+  CRITICAL: { label: "Critical stock", icon: "⚠\uFE0E", tone: "border-danger-line bg-danger-soft text-danger-ink", tile: "border-danger-line border-l-danger bg-danger-soft" },
+  // Darker than Critical, and always worded, so it stands apart without relying on the shade.
+  OUT_OF_STOCK: { label: "Out of stock", icon: "✕", tone: "border-danger bg-danger text-white", tile: "border-danger border-l-danger-ink bg-danger-soft" },
 };
 
 /** Best to worst. */

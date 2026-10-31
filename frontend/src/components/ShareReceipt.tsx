@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { Alert } from "./ui";
 import { formatDate, formatQty, formatTime, formatTZS } from "@/lib/money";
+import { paymentLabel } from "@/lib/payments";
 import type { Sale, ShopSettings } from "@/lib/types";
 
 function receiptText(sale: Sale, shop: ShopSettings | null): string {
@@ -20,14 +21,14 @@ function receiptText(sale: Sale, shop: ShopSettings | null): string {
     ]),
     "",
     `TOTAL: ${formatTZS(sale.total)}`,
-    `Paid by: ${[...new Set(sale.payments.map((payment) => payment.method_name))].join(", ")}`,
+    `Paid by: ${[...new Set(sale.payments.map((payment) => paymentLabel(payment.method_name, payment.provider_name)))].join(", ")}`,
     ...(Number(sale.change_due) > 0 ? [`Change: ${formatTZS(sale.change_due)}`] : []),
     shop?.receipt_footer,
   ];
   return lines.filter((line) => line !== undefined && line !== "").join("\n");
 }
 
-export function ShareReceipt({ sale, shop }: { sale: Sale; shop: ShopSettings | null }) {
+export function ShareReceipt({ sale, shop, compact = false }: { sale: Sale; shop: ShopSettings | null; compact?: boolean }) {
   const [message, setMessage] = useState<{ kind: "success" | "error"; text: string } | null>(null);
 
   async function share() {
@@ -53,10 +54,17 @@ export function ShareReceipt({ sale, shop }: { sale: Sale; shop: ShopSettings | 
     }
   }
 
-  return (
-    <div className="no-print space-y-2">
-      <button type="button" className="btn-secondary" onClick={share}>Share receipt</button>
-      {message && <Alert kind={message.kind}>{message.text}</Alert>}
-    </div>
+  const button = (
+    <button type="button" className={`btn-secondary ${compact ? "min-h-11 w-full min-w-0 whitespace-normal break-words px-1 py-1 text-center text-xs leading-tight" : ""}`} onClick={share}>Share </button>
+  );
+  const notice = message && <Alert kind={message.kind}>{message.text}</Alert>;
+
+  return compact ? (
+    <>
+      {button}
+      {notice && <div className="no-print col-span-5">{notice}</div>}
+    </>
+  ) : (
+    <div className="no-print space-y-2">{button}{notice}</div>
   );
 }

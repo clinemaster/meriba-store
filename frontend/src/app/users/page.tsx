@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
-import { Alert, Field, Modal, PageTitle, Spinner, StatusBadge, useConfirm } from "@/components/ui";
+import { Alert, Field, Modal, PageTitle, StatusBadge, useConfirm } from "@/components/ui";
 import { ColumnPicker } from "@/components/ColumnPicker";
-import type { ColumnDef } from "@/lib/columns";
+import { ActionButton, DataTable, TableToolbar } from "@/components/DataTable";
+import type { TableColumn } from "@/lib/table";
 import { useColumnVisibility } from "@/lib/useColumnVisibility";
 import { api, ApiError, errorMessage, type Page } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -18,14 +19,24 @@ const ROLES: { value: Role; label: string; help: string }[] = [
   { value: "OWNER", label: "Owner", help: "Can do everything, including managing users and settings." },
 ];
 
-const COLUMNS: ColumnDef[] = [
-  { key: "name", label: "Name", essential: true }, { key: "username", label: "Username" }, { key: "role", label: "Role" },
-  { key: "status", label: "Status" }, { key: "login", label: "Last signed in" },
+const roleLabel = (role: Role) => ROLES.find((r) => r.value === role)?.label ?? "";
+
+/** Every user is loaded at once, so the table sorts them itself. */
+const COLUMNS: TableColumn<User>[] = [
+  { key: "name", label: "Name", essential: true, sortable: true, accessor: "display_name", className: "font-semibold" },
+  { key: "username", label: "Username", sortable: true },
+  { key: "role", label: "Role", sortable: true, accessor: (u) => roleLabel(u.role) },
+  { key: "status", label: "Status", render: (u) => <StatusBadge status={u.is_active ? "OPEN" : "OFF"} label={u.is_active ? "Active" : "Switched off"} /> },
+  { key: "login", label: "Last signed in", sortable: true, accessor: "last_login", format: (v) => (v ? formatDate(v as string) : "Never") },
 ];
 
 export default function UsersPage() {
-  const cols = useColumnVisibility("users", COLUMNS);
   const { user: me } = useAuth();
+  // The signed-in person's own row says "(you)".
+  const columns = useMemo(() => COLUMNS.map((c) => (c.key !== "name" ? c : {
+    ...c, render: (u: User) => <>{u.display_name}{u.id === me?.id && " (you)"}</>,
+  })), [me?.id]);
+  const cols = useColumnVisibility("users", columns);
   const list = useLoad<Page<User>>("/users/?page_size=200");
   const [mode, setMode] = useState<{ kind: "new" } | { kind: "edit" | "password"; user: User } | null>(null);
   const [form, setForm] = useState({ username: "", full_name: "", role: "CASHIER" as Role, password: "", is_active: true });
@@ -78,28 +89,17 @@ export default function UsersPage() {
     <div>
       <PageTitle title="Users" help="Each person signs in with their own account, so every sale and change carries their name. Accounts are switched off, never deleted."
         action={<button className="btn-primary" onClick={() => open({ kind: "new" })}>+ Add User</button>} />
-      <div className="card overflow-x-auto">
-        {(list.data?.results.length ?? 0) > 0 && <div className="mb-3 flex justify-end"><ColumnPicker visibility={cols} /></div>}
-        {list.loading && !list.data ? <Spinner /> : list.error ? <Alert kind="error">{list.error}</Alert> : (
-          <table className="table">
-            <thead><tr>{cols.show("name") && <th>Name</th>}{cols.show("username") && <th>Username</th>}{cols.show("role") && <th>Role</th>}{cols.show("status") && <th>Status</th>}{cols.show("login") && <th>Last signed in</th>}<th /></tr></thead>
-            <tbody>
-              {list.data!.results.map((u) => (
-                <tr key={u.id} className={u.is_active ? "" : "text-slate-500"}>
-                  {cols.show("name") && <td className="font-semibold">{u.display_name}{u.id === me?.id && " (you)"}</td>}
-                  {cols.show("username") && <td>{u.username}</td>}
-                  {cols.show("role") && <td>{ROLES.find((r) => r.value === u.role)?.label}</td>}
-                  {cols.show("status") && <td><StatusBadge status={u.is_active ? "OPEN" : "OFF"} label={u.is_active ? "Active" : "Switched off"} /></td>}
-                  {cols.show("login") && <td>{u.last_login ? formatDate(u.last_login) : "Never"}</td>}
-                  <td className="space-x-2 whitespace-nowrap text-right">
-                    <button className="btn-secondary min-h-[2.5rem]" onClick={() => open({ kind: "edit", user: u })}>Edit</button>
-                    <button className="btn-secondary min-h-[2.5rem]" onClick={() => open({ kind: "password", user: u })}>New password</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+      <div className="card">
+        {(list.data?.results.length ?? 0) > 0 && <TableToolbar><ColumnPicker visibility={cols} /></TableToolbar>}
+        <DataTable label="Users" columns={columns} visibility={cols} rows={list.data?.results} rowKey={(u) => u.id}
+          loading={list.loading && !list.data} error={list.error} empty="No users yet."
+          rowClassName={(u) => (u.is_active ? "" : "text-slate-500")}
+          actions={(u) => (
+            <>
+              <ActionButton aria-label={`Edit ${u.display_name}`} onClick={() => open({ kind: "edit", user: u })}>Edit</ActionButton>
+              <ActionButton aria-label={`New password for ${u.display_name}`} onClick={() => open({ kind: "password", user: u })}>New password</ActionButton>
+            </>
+          )} />
       </div>
 
       {mode && (

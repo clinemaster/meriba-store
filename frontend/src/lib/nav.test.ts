@@ -7,8 +7,8 @@ describe("sidebar groups", () => {
   it("owner sees all four groups in order", () => {
     expect(shape("OWNER")).toEqual([
       ["Selling", ["Home", "Today's Sales", "Daily Sheet", "Close Day"]],
-      ["Stock", ["Products", "Stock", "Receive Stock"]],
-      ["Money & Reports", ["Daily Closing", "Expenses", "Reports", "Audit History"]],
+      ["Stock", ["Products", "Stock", "Receive Stock", "Damaged Product"]],
+      ["Money & Reports", ["Payments", "Daily Closing", "Expenses", "Reports", "Audit History"]],
       ["Admin", ["Users", "Settings", "Setup"]],
     ]);
   });
@@ -16,7 +16,7 @@ describe("sidebar groups", () => {
     expect(shape("ACCOUNTANT").at(-1)).toEqual(["Admin", ["Setup"]]);
   });
   it("cashier sees only the Selling group", () => {
-    expect(shape("CASHIER")).toEqual([["Selling", ["Home", "Today's Sales", "Daily Sheet", "Close Day"]]]);
+    expect(shape("CASHIER")).toEqual([["Selling", ["Home", "Today's Sales", "Daily Sheet", "Close Day", "My Payments"]]]);
   });
   it("every menu entry belongs to a group", () => {
     expect(navFor("OWNER").every((i) => i.group)).toBe(true);
@@ -32,13 +32,16 @@ describe("sidebar groups", () => {
 
 describe("menus by role", () => {
   it("cashier sees only daily sales functions", () => {
-    expect(navFor("CASHIER").map((i) => i.label)).toEqual(["Home", "Today's Sales", "Daily Sheet", "Close Day"]);
+    expect(navFor("CASHIER").map((i) => i.label)).toEqual(["Home", "Today's Sales", "Daily Sheet", "Close Day", "My Payments"]);
   });
   it("accountant sees finance, stock and reports but not users", () => {
     const labels = navFor("ACCOUNTANT").map((i) => i.label);
     expect(labels).toContain("Daily Closing");
     expect(labels).toContain("Stock");
-    expect(labels).toEqual(expect.arrayContaining(["Receive Stock", "Expenses", "Reports", "Setup"]));
+    expect(labels).toEqual(expect.arrayContaining(["Receive Stock", "Damaged Product", "Expenses", "Reports", "Setup"]));
+    expect(canOpen("OWNER", "/damaged-products")).toBe(true);
+    expect(canOpen("ACCOUNTANT", "/damaged-products")).toBe(true);
+    expect(canOpen("CASHIER", "/damaged-products")).toBe(false);
     expect(labels).not.toContain("Users");
   });
   it("Excel History is off the menu but still opens for the office", () => {
@@ -52,7 +55,7 @@ describe("menus by role", () => {
 });
 
 describe("opening a page by typing its address (AT-UX-02)", () => {
-  it.each(["/users", "/setup", "/products", "/stock", "/closing", "/receive", "/expenses", "/reports", "/history", "/audit", "/settings", "/anything-else"])("cashier is refused %s", (path) => {
+  it.each(["/users", "/setup", "/products", "/stock", "/closing", "/receive", "/damaged-products", "/expenses", "/reports", "/history", "/audit", "/settings", "/anything-else"])("cashier is refused %s", (path) => {
     expect(canOpen("CASHIER", path)).toBe(false);
   });
   it.each(["/", "/sale", "/sales", "/sheet", "/day/start", "/day/close", "/change-password", "/help"])("cashier may open %s", (path) => {
@@ -64,5 +67,12 @@ describe("opening a page by typing its address (AT-UX-02)", () => {
     expect(canOpen("ACCOUNTANT", "/audit")).toBe(true);
     expect(canOpen("ACCOUNTANT", "/reports")).toBe(true);
     expect(canOpen("ACCOUNTANT", "/closing")).toBe(true);
+  });
+
+  it("opens Payments for every role, and payment settings for the back office only", () => {
+    for (const role of ["OWNER", "ACCOUNTANT", "CASHIER"] as const) expect(canOpen(role, "/payments/transactions")).toBe(true);
+    expect(canOpen("ACCOUNTANT", "/settings/payment-methods")).toBe(true);
+    expect(canOpen("ACCOUNTANT", "/settings")).toBe(false);
+    expect(canOpen("CASHIER", "/settings/payment-methods")).toBe(false);
   });
 });

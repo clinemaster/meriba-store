@@ -2,12 +2,13 @@
 
 import { useRef, useState } from "react";
 
-import { Alert, Field, PageTitle, Spinner, StatusBadge, useConfirm } from "@/components/ui";
+import { Alert, Field, PageTitle, StatusBadge, useConfirm } from "@/components/ui";
 import { ColumnPicker } from "@/components/ColumnPicker";
-import type { ColumnDef } from "@/lib/columns";
+import { ActionButton, DataTable, TableToolbar } from "@/components/DataTable";
+import type { TableColumn } from "@/lib/table";
 import { useColumnVisibility } from "@/lib/useColumnVisibility";
 import { api, errorMessage, type Page } from "@/lib/api";
-import { formatDate, formatTZS, toCents, centsToApi } from "@/lib/money";
+import { formatTZS, toCents, centsToApi } from "@/lib/money";
 import type { CurrentDay, PaymentMethod } from "@/lib/types";
 import { useLoad } from "@/lib/useLoad";
 
@@ -16,9 +17,16 @@ type Expense = {
   paid_from_drawer_of: string; status: string; status_label: string; void_reason: string; recorded_by_name: string;
 };
 
-const COLUMNS: ColumnDef[] = [
-  { key: "date", label: "Date" }, { key: "category", label: "Category" }, { key: "description", label: "Description", essential: true },
-  { key: "method", label: "Paid by" }, { key: "amount", label: "Amount" }, { key: "status", label: "Status" }, { key: "by", label: "Recorded by" },
+const COLUMNS: TableColumn<Expense>[] = [
+  { key: "date", label: "Date", type: "date", accessor: "business_date", className: "whitespace-nowrap" },
+  { key: "category", label: "Category" },
+  { key: "description", label: "Description", essential: true,
+    render: (x) => <>{x.description}{x.void_reason && <span className="block text-sm">Cancelled: {x.void_reason}</span>}</> },
+  { key: "method", label: "Paid by",
+    render: (x) => <>{x.method_name}{x.paid_from_drawer_of && <span className="block text-sm text-slate-600">from {x.paid_from_drawer_of}&apos;s drawer</span>}</> },
+  { key: "amount", label: "Amount", type: "currency", className: (x) => `font-semibold ${x.status === "VOIDED" ? "line-through" : ""}` },
+  { key: "status", label: "Status", render: (x) => <StatusBadge status={x.status === "RECORDED" ? "COMPLETED" : "VOIDED"} label={x.status_label} /> },
+  { key: "by", label: "Recorded by", accessor: "recorded_by_name" },
 ];
 
 export default function ExpensesPage() {
@@ -77,7 +85,7 @@ export default function ExpensesPage() {
   function cancel(expense: Expense) {
     confirm({
       message: `Cancel the expense "${expense.description}" of ${formatTZS(expense.amount)}? It stays on record as cancelled.`,
-      yes: "Yes, cancel it", input: { label: "Reason for cancelling" },
+      yes: "Yes, cancel it", danger: true, input: { label: "Reason for cancelling" },
       run: (reason) => cancelNow(expense, reason),
     });
   }
@@ -138,36 +146,16 @@ export default function ExpensesPage() {
         <button className="btn-primary" disabled={busy}>{busy ? "Saving…" : "Save Expense"}</button>
       </form>
 
-      <section className="card overflow-x-auto">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-xl font-bold">Latest expenses</h2>
+      <section className="card">
+        <TableToolbar summary={<h2 className="text-xl font-bold">Latest expenses</h2>}>
           {(list.data?.results.length ?? 0) > 0 && <ColumnPicker visibility={cols} />}
-        </div>
-        {list.loading && !list.data ? <Spinner /> : list.error ? <Alert kind="error">{list.error}</Alert> : (list.data?.results.length ?? 0) === 0 ? (
-          <p className="text-slate-600">No expenses recorded yet.</p>
-        ) : (
-          <table className="table">
-            <thead><tr>
-              {cols.show("date") && <th>Date</th>}{cols.show("category") && <th>Category</th>}{cols.show("description") && <th>Description</th>}
-              {cols.show("method") && <th>Paid by</th>}{cols.show("amount") && <th className="num">Amount</th>}{cols.show("status") && <th>Status</th>}
-              {cols.show("by") && <th>Recorded by</th>}<th />
-            </tr></thead>
-            <tbody>
-              {list.data!.results.map((x) => (
-                <tr key={x.id} className={x.status === "VOIDED" ? "text-slate-500" : ""}>
-                  {cols.show("date") && <td className="whitespace-nowrap">{formatDate(x.business_date)}</td>}
-                  {cols.show("category") && <td>{x.category}</td>}
-                  {cols.show("description") && <td>{x.description}{x.void_reason && <span className="block text-sm">Cancelled: {x.void_reason}</span>}</td>}
-                  {cols.show("method") && <td>{x.method_name}{x.paid_from_drawer_of && <span className="block text-sm text-slate-600">from {x.paid_from_drawer_of}&apos;s drawer</span>}</td>}
-                  {cols.show("amount") && <td className={`num font-semibold ${x.status === "VOIDED" ? "line-through" : ""}`}>{formatTZS(x.amount)}</td>}
-                  {cols.show("status") && <td><StatusBadge status={x.status === "RECORDED" ? "COMPLETED" : "VOIDED"} label={x.status_label} /></td>}
-                  {cols.show("by") && <td>{x.recorded_by_name}</td>}
-                  <td className="text-right">{x.status === "RECORDED" && <button className="btn-secondary min-h-[2.5rem]" disabled={asking} onClick={() => cancel(x)}>Cancel…</button>}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        </TableToolbar>
+        <DataTable label="Latest expenses" columns={COLUMNS} visibility={cols} rows={list.data?.results} rowKey={(x) => x.id}
+          loading={list.loading && !list.data} error={list.error} empty="No expenses recorded yet."
+          rowClassName={(x) => (x.status === "VOIDED" ? "text-slate-500" : "")}
+          actions={(x) => x.status === "RECORDED" && (
+            <ActionButton aria-label={`Cancel expense: ${x.description}`} disabled={asking} onClick={() => cancel(x)}>Cancel…</ActionButton>
+          )} />
       </section>
       {confirmation}
     </div>

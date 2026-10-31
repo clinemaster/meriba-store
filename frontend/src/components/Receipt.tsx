@@ -1,4 +1,5 @@
 import { formatDate, formatQty, formatTime, formatTZS } from "@/lib/money";
+import { paymentLabel } from "@/lib/payments";
 import type { Sale, ShopSettings } from "@/lib/types";
 
 export function Receipt({ sale, shop }: { sale: Sale; shop: ShopSettings | null }) {
@@ -27,7 +28,7 @@ export function Receipt({ sale, shop }: { sale: Sale; shop: ShopSettings | null 
       <div className="flex justify-between text-base font-bold"><span>TOTAL</span><span>{formatTZS(sale.total)}</span></div>
       {sale.payments.map((p) => (
         <div key={p.id} className="flex justify-between">
-          <span>{p.method_name}{p.reference ? ` (${p.reference})` : ""}</span>
+          <span>{paymentLabel(p.method_name, p.provider_name)}{p.reference ? ` (${p.reference})` : ""}</span>
           <span>{formatTZS(p.is_cash ? p.tendered : p.amount).replace("TZS ", "")}</span>
         </div>
       ))}

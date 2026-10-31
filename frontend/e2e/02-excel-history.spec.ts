@@ -25,8 +25,8 @@ test.beforeAll(async ({ browser }, testInfo) => {
   const page = await context.newPage();
   await page.goto("/login");
   await page.getByLabel("Username").fill(OWNER.username);
-  await page.getByLabel("Password").fill(OWNER.password);
-  await page.getByRole("button", { name: "Sign in" }).click();
+  await page.getByLabel("Password", { exact: true }).fill(OWNER.password);
+  await page.getByRole("button", { name: "LOGIN" }).click();
   await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
   await context.storageState({ path: SESSION });
   await context.close();

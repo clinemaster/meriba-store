@@ -13,7 +13,7 @@ and what is still to be built.
 - Guided first-time setup: products, opening stock count, cashier account, then "go live".
 - Cashier day: Start Day → Daily Sheet (type the quantity sold) → receipt → Today's Sales → Close Day with cash count.
 - Stock goes down automatically with each sale, through a ledger that cannot be edited.
-- Cash, mobile money and bank payments, including paying one sale with more than one method.
+- Cash, mobile money and bank payments with their providers (M-PESA, NMB, …), configured by the Owner, including paying one sale with more than one method. A Payments dashboard reconciles collections with sales. See [docs/PAYMENTS.md](docs/PAYMENTS.md).
 - Cumulative monetary sales balance: each day opens with the last closed day's closing balance.
 - Back office: review cashier closings, cancel or refund a sale, receive deliveries, expenses, stock corrections, users, audit trail.
 - Refunds are recorded on the current day; closed days change only through an Owner's audited correction.

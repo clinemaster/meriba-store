@@ -41,7 +41,7 @@ def refund(client, sale, quantity, method, restock=True):
 
 
 def close(client, shift_id, counted):
-    return client.post(f"/api/v1/shifts/{shift_id}/close/", {"counted_cash": str(counted), "note": "count"}, format="json")
+    return client.post(f"/api/v1/shifts/{shift_id}/close/", {"counted_cash": str(counted), "note": "count", "payments_reviewed": True}, format="json")
 
 
 # --- 1, 2. Sold By is a validated list; volume is a positive whole number or blank ---------------
@@ -157,8 +157,8 @@ def test_daily_stock_figures_and_carry_forward(cashier, accountant, shop, make_p
     wrong = sell(till, [(product, 4)], [(shop.cash, 18000)]).data
     office.post(f"/api/v1/sales/{wrong['id']}/void/", {"reason": "rung up twice"}, format="json")       # cancelled: not a sale
     refund(office, sale, 2, shop.cash)                                                                   # 2 returned to the shelf
-    office.post("/api/v1/stock/adjustments/", {"request_key": str(uuid.uuid4()), "reason": "1 broken", "kind": "DAMAGE",
-                                                "lines": [{"product": product.pk, "quantity": "61"}]}, format="json")  # breakage
+    office.post("/api/v1/stock/damaged/", {"request_key": str(uuid.uuid4()), "reason": "1 broken",
+                                             "lines": [{"product": product.pk, "quantity": "1"}]}, format="json")  # breakage
     day2 = row(office, product, date=str(D2))
     assert day2["opening_stock"] == "75"  # yesterday's closing (AT-STK-02)
     assert (day2["incoming"], day2["total_item_stock"], day2["sales"], day2["other_out"], day2["closing_stock"]) == ("2", "77", "15", "1", "61")

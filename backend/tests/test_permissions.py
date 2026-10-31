@@ -104,7 +104,7 @@ def test_cashier_cannot_view_or_close_another_cashiers_shift(cashier, cashier2):
     other = start_shift(client_for(cashier2))
     mine = client_for(cashier)
     assert mine.get(f"/api/v1/shifts/{other['id']}/").status_code == 404
-    assert mine.post(f"/api/v1/shifts/{other['id']}/close/", {"counted_cash": "0"}, format="json").status_code == 404
+    assert mine.post(f"/api/v1/shifts/{other['id']}/close/", {"counted_cash": "0", "payments_reviewed": True}, format="json").status_code == 404
 
 
 def test_accountant_has_finance_access_but_not_owner_only_controls(accountant, owner):

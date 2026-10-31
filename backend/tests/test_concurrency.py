@@ -79,7 +79,7 @@ def test_sale_and_closing_at_the_same_moment_stay_consistent(make_user, shop, ma
     shift = start_shift(client_for(user))
     jobs = [
         lambda: client_for(user).post("/api/v1/sales/", sale_payload([(product, 1)], [(shop.cash, 1000)]), format="json"),
-        lambda: client_for(user).post(f"/api/v1/shifts/{shift['id']}/close/", {"counted_cash": "1000", "note": "count"}, format="json"),
+        lambda: client_for(user).post(f"/api/v1/shifts/{shift['id']}/close/", {"counted_cash": "1000", "note": "count", "payments_reviewed": True}, format="json"),
     ]
     sale, _closing = run_together(jobs)
     sold = 1000 if sale.status_code == 201 else 0

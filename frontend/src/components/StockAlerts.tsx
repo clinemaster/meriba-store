@@ -52,7 +52,7 @@ export function StockAlerts({ userId }: { userId: number }) {
   return (
     <section role="status" aria-live="polite" aria-label="Stock warnings"
       className="no-print fixed bottom-4 right-4 z-40 w-[min(26rem,calc(100vw-2rem))] rounded-lg border-2 border-amber-400 bg-white p-4 shadow-2xl">
-      <h2 className="font-bold"><span aria-hidden>⚠ </span>Stock is running low</h2>
+      <h2 className="font-bold"><span aria-hidden>{"⚠\uFE0E "}</span>Stock is running low</h2>
       <ul className="mt-2 space-y-2">
         {alerts.slice(0, SHOWN).map((a) => (
           <li key={a.id} className="flex flex-wrap items-center justify-between gap-2">

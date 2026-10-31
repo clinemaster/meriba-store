@@ -10,25 +10,25 @@ import { BackButton } from "./BackButton";
 
 export function Spinner({ label = "Loading…" }: { label?: string }) {
   return (
-    <div role="status" className="flex items-center gap-3 p-6 text-slate-600">
-      <span className="h-6 w-6 animate-spin rounded-full border-4 border-slate-300 border-t-brand-600" aria-hidden />
+    <div role="status" className="flex items-center gap-3 p-6 text-ink-muted">
+      <span className="h-6 w-6 animate-spin rounded-full border-4 border-line border-t-brand-600 motion-reduce:animate-none" aria-hidden />
       <span>{label}</span>
     </div>
   );
 }
 
 const ALERT = {
-  error: { box: "border-red-300 bg-red-50 text-red-900", icon: "⚠", word: "Problem" },
-  success: { box: "border-green-300 bg-green-50 text-green-900", icon: "✔", word: "Done" },
-  info: { box: "border-sky-300 bg-sky-50 text-sky-900", icon: "ℹ", word: "Note" },
-  warning: { box: "border-amber-300 bg-amber-50 text-amber-900", icon: "!", word: "Attention" },
+  error: { box: "border-danger-line border-l-danger bg-danger-soft text-danger-ink", icon: "⚠\uFE0E", word: "Problem" },
+  success: { box: "border-success-line border-l-success bg-success-soft text-success-ink", icon: "✔\uFE0E", word: "Done" },
+  info: { box: "border-info-line border-l-info bg-info-soft text-info-ink", icon: "ℹ\uFE0E", word: "Note" },
+  warning: { box: "border-warning-line border-l-warning bg-warning-soft text-warning-ink", icon: "!", word: "Attention" },
 } as const;
 
 /** Messages always carry an icon and a word, never colour alone. */
 export function Alert({ kind = "info", children }: { kind?: keyof typeof ALERT; children: React.ReactNode }) {
   const style = ALERT[kind];
   return (
-    <div role={kind === "error" ? "alert" : "status"} className={`flex gap-3 rounded-lg border-2 px-4 py-3 ${style.box}`}>
+    <div role={kind === "error" ? "alert" : "status"} className={`flex gap-3 rounded-lg border border-l-4 px-4 py-3 ${style.box}`}>
       <span aria-hidden className="font-bold">{style.icon}</span>
       <div>
         <span className="font-semibold">{style.word}: </span>
@@ -140,24 +140,67 @@ export function Modal({
   );
 }
 
-export function Stat({ label, value, note, strong = false }: { label: string; value: string; note?: string; strong?: boolean }) {
+/**
+ * Each kind of figure keeps one colour on every screen, shown as a coloured edge and a light tint; the number itself
+ * stays in the main text colour so it is always easy to read:
+ * sales = action blue, profit = success green (danger when it is a loss), stock value = teal, expenses = amber.
+ */
+const STAT_TONE = {
+  neutral: "border-line bg-neutral-soft",
+  sales: "border-brand-200 border-l-brand-600 bg-brand-50",
+  profit: "border-success-line border-l-success bg-success-soft",
+  loss: "border-danger-line border-l-danger bg-danger-soft",
+  stock: "border-secondary-line border-l-secondary bg-secondary-soft",
+  expenses: "border-warning-line border-l-warning bg-warning-soft",
+} as const;
+export type StatTone = keyof typeof STAT_TONE;
+
+export function Stat({ label, value, note, strong = false, tone = "neutral" }: { label: string; value: string; note?: string; strong?: boolean; tone?: StatTone }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-      <div className="text-sm font-semibold text-slate-600">{label}</div>
-      <div className={`mt-1 text-2xl tabular-nums ${strong ? "font-bold" : "font-semibold"}`}>{value}</div>
-      {note && <div className="mt-1 text-sm text-slate-600">{note}</div>}
+    <div className={`rounded-lg border p-4 ${tone === "neutral" ? "" : "border-l-4"} ${STAT_TONE[tone]}`}>
+      <div className="text-sm font-semibold text-ink-muted">{label}</div>
+      <div className={`mt-1 text-2xl tabular-nums text-ink ${strong ? "font-bold" : "font-semibold"}`}>{value}</div>
+      {note && <div className="mt-1 text-sm text-ink-muted">{note}</div>}
     </div>
   );
 }
 
+/**
+ * What each state looks like, everywhere. Green = done or fine, amber = waiting for someone, red = cancelled or wrong,
+ * violet = money given back, blue = for information, grey = closed, switched off or history.
+ * Every badge shows an icon and its word as well as its colour.
+ */
+const BADGE = {
+  success: { tone: "border-success-line bg-success-soft text-success-ink", icon: "✔\uFE0E" },
+  warning: { tone: "border-warning-line bg-warning-soft text-warning-ink", icon: "!" },
+  danger: { tone: "border-danger-line bg-danger-soft text-danger-ink", icon: "✕" },
+  refund: { tone: "border-refund-line bg-refund-soft text-refund-ink", icon: "↩" },
+  info: { tone: "border-info-line bg-info-soft text-info-ink", icon: "ℹ\uFE0E" },
+  neutral: { tone: "border-neutral-line bg-neutral-soft text-neutral-ink", icon: "–" },
+} as const;
+
+const STATUS_KIND: Record<string, keyof typeof BADGE> = {
+  OPEN: "success", IN_STOCK: "success", BALANCED: "success", APPROVED: "success", COMPLETED: "success",
+  VERIFIED: "success", CONFIRMED: "success", ACTIVE: "success",
+  PENDING: "warning", PENDING_REVIEW: "warning", NOT_STARTED: "warning", LOW_STOCK: "warning", FLAGGED: "warning",
+  DISCREPANCY: "danger", OUT_OF_STOCK: "danger", CRITICAL: "danger", VOIDED: "danger", REJECTED: "danger", REVERSED: "danger",
+  REFUNDED: "refund", PARTIALLY_REFUNDED: "refund",
+  PREVIEW: "info", INFO: "info",
+  CLOSED: "neutral", OFF: "neutral", NONE: "neutral", INACTIVE: "neutral",
+};
+
+/** The kind of badge a status code gets. Unknown codes are shown as waiting, so they are never missed. */
+export function statusKind(status: string): keyof typeof BADGE {
+  return STATUS_KIND[status] ?? "warning";
+}
+
 export function StatusBadge({ status, label }: { status: string; label: string }) {
-  const tone =
-    status === "OPEN" || status === "IN_STOCK" || status === "BALANCED" || status === "APPROVED" || status === "COMPLETED"
-      ? "bg-green-100 text-green-900 border-green-300"
-      : status === "DISCREPANCY" || status === "OUT_OF_STOCK" || status === "CRITICAL" || status === "VOIDED"
-        ? "bg-red-100 text-red-900 border-red-300"
-        : "bg-amber-100 text-amber-900 border-amber-300";
-  return <span className={`inline-block whitespace-nowrap rounded-full border px-3 py-0.5 text-sm font-semibold ${tone}`}>{label}</span>;
+  const badge = BADGE[statusKind(status)];
+  return (
+    <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[12px] font-semibold ${badge.tone}`}>
+      <span aria-hidden>{badge.icon}</span>{label}
+    </span>
+  );
 }
 
 /** A product's stock level: icon and word on its colour, with the quantity beside it when given. */
@@ -166,7 +209,7 @@ export function StockBadge({ status, quantity, unit }: { status: StockStatus; qu
   return (
     <span className="inline-flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
       {quantity !== undefined && <span className="tabular-nums">{formatQty(quantity)}{unit ? ` ${unit}` : ""}</span>}
-      <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-semibold ${level.tone}`}>
+      <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[12px] font-semibold ${level.tone}`}>
         <span aria-hidden>{level.icon}</span>{level.label}
       </span>
     </span>
@@ -177,8 +220,11 @@ export function StockBadge({ status, quantity, unit }: { status: StockStatus; qu
  * A toast that asks a question: it slides in at the top right, stays until answered, and does not block the page
  * the way the browser's own pop-up does. Escape or "No" dismisses it.
  */
-export function ConfirmToast({ message, yes, no = "No, go back", busy = false, ready = true, onYes, onNo, children }: {
-  message: string; yes: string; no?: string; busy?: boolean; ready?: boolean; onYes: () => void; onNo: () => void; children?: React.ReactNode;
+export function ConfirmToast({ message, yes, no = "No, go back", busy = false, ready = true, danger = false, onYes, onNo, children }: {
+  message: string; yes: string; no?: string; busy?: boolean; ready?: boolean;
+  /** The action cannot be undone (cancelling a sale): "Yes" is red instead of the usual blue. */
+  danger?: boolean;
+  onYes: () => void; onNo: () => void; children?: React.ReactNode;
 }) {
   const yesButton = useRef<HTMLButtonElement>(null);
   const onNoRef = useRef(onNo);
@@ -193,19 +239,19 @@ export function ConfirmToast({ message, yes, no = "No, go back", busy = false, r
   }, [hasInput]);
   return (
     <div role="alertdialog" aria-label="Please confirm" aria-describedby="confirm-toast-message"
-      className="no-print fixed right-4 top-4 z-50 w-[min(26rem,calc(100vw-2rem))] rounded-lg border-2 border-brand-700 bg-white p-4 shadow-2xl">
-      <p id="confirm-toast-message" className="font-semibold text-slate-900">{message}</p>
+      className="no-print fixed right-4 top-4 z-50 w-[min(26rem,calc(100vw-2rem))] rounded-lg border-2 border-l-8 border-warning bg-surface p-4 shadow-2xl">
+      <p id="confirm-toast-message" className="font-semibold text-ink">{message}</p>
       {children && <div className="mt-3">{children}</div>}
       <div className="mt-3 flex flex-wrap justify-end gap-2">
         <button type="button" className="btn-secondary min-h-[2.5rem]" disabled={busy} onClick={onNo}>{no}</button>
-        <button type="button" ref={yesButton} className="btn-primary min-h-[2.5rem]" disabled={busy || !ready} onClick={onYes}>{yes}</button>
+        <button type="button" ref={yesButton} className={`${danger ? "btn-danger" : "btn-primary"} min-h-[2.5rem]`} disabled={busy || !ready} onClick={onYes}>{yes}</button>
       </div>
     </div>
   );
 }
 
 type Question = {
-  message: string; yes: string;
+  message: string; yes: string; danger?: boolean;
   // Asks for one typed answer in the same box (a reason, a number) instead of the browser's prompt.
   input?: { label: string; hint?: string; initial?: string; numeric?: boolean; minLength?: number };
   run: (answer: string) => void;
@@ -220,7 +266,7 @@ export function useConfirm() {
   const input = question?.input;
   const ready = !input || answer.trim().length >= (input.minLength ?? 1);
   const confirmation = question && (
-    <ConfirmToast message={question.message} yes={question.yes} ready={ready} onNo={() => setQuestion(null)}
+    <ConfirmToast message={question.message} yes={question.yes} danger={question.danger} ready={ready} onNo={() => setQuestion(null)}
       onYes={() => { if (!ready) return; setQuestion(null); question.run(answer.trim()); }}>
       {input && (
         <Field label={input.label} hint={input.hint}>

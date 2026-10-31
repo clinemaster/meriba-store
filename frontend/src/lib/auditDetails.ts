@@ -14,7 +14,9 @@ const RECORDS: Record<string, string> = {
   CashierShift: "Cashier shift", HistoricalRecord: "Excel sheet line", BusinessDay: "Business day", StockAdjustment: "Stock adjustment",
   GoodsReceipt: "Stock received", ReviewItem: "Excel History question", BusinessSettings: "Shop settings",
   ReceiptImport: "Received stock upload", Supplier: "Supplier", ImportBatch: "Excel import", Refund: "Refund", Expense: "Expense",
-  PaymentMethod: "Payment method",
+  PaymentMethod: "Payment category",
+  PaymentProvider: "Payment provider",
+  Payment: "Payment",
 };
 
 const LABELS: Record<string, string> = {

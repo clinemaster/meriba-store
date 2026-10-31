@@ -168,3 +168,7 @@ text only when that text is plainly millilitres. The real database was backed up
 **Why history cannot be rewritten.** A sale line stores its own price, package factor and cost. Changing a selling
 price, a purchase price or a package later changes none of those, so past receipts, Total Sales and Profit stay as
 they were. Tests cover each case.
+
+## Payment providers (migrations `sales 0006`, `0007`, `trading 0005`)
+
+`PaymentProvider` belongs to a payment category (`PaymentMethod`); `Payment` and `Refund` carry an optional provider and the provider's name as it was. Closed days keep a `payment_snapshot`; closed shifts keep a `provider_breakdown` per method. All additive. Details, formulas and the migration check: [PAYMENTS.md](PAYMENTS.md).

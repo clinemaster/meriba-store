@@ -178,15 +178,17 @@ export default function ReceiveStockPage() {
         <h2 className="mb-3 text-xl font-bold">Latest deliveries</h2>
         {history.loading && !history.data ? <Spinner /> : (history.data?.results.length ?? 0) === 0 ? <p className="text-slate-600">No deliveries recorded yet.</p> : (
           <table className="table">
-            <thead><tr><th>Date</th><th>Supplier</th><th>Invoice no.</th><th>What came in</th><th className="num">Total cost</th><th>Received by</th></tr></thead>
+            <thead><tr><th className="num w-12">S/No</th><th>Date</th><th>Supplier</th><th>Invoice no.</th><th>What came in</th><th className="num">Total cost</th><th>Received by</th></tr></thead>
             <tbody>
-              {history.data!.results.map((r) => (
-                <tr key={r.id}>
+              {/* One row per product delivered; its total cost is quantity × the cost for one. */}
+              {history.data!.results.flatMap((r) => r.lines.map((l, i) => ({ r, l, i }))).map(({ r, l, i }, n) => (
+                <tr key={`${r.id}-${i}`}>
+                  <td className="num">{n + 1}</td>
                   <td className="whitespace-nowrap">{formatDate(r.business_date)}</td>
                   <td>{r.supplier_name || "—"}</td>
                   <td>{r.reference || "—"}</td>
-                  <td>{r.lines.map((l) => `${formatQty(l.quantity)} × ${l.product_name}`).join(", ")}</td>
-                  <td className="num">{r.total_cost === null ? "Not recorded" : formatTZS(r.total_cost)}</td>
+                  <td>{`${formatQty(l.quantity)} × ${l.product_name}`}</td>
+                  <td className="num">{l.unit_cost === null ? "Not recorded" : formatTZS(Number(l.quantity) * toCents(l.unit_cost), true)}</td>
                   <td>{r.received_by_name}</td>
                 </tr>
               ))}

@@ -4,47 +4,12 @@ from rest_framework import generics, serializers, viewsets
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.permissions import IsOwner, IsOwnerOrAccountant, IsSignedIn
+from accounts.permissions import IsOwnerOrAccountant, IsSignedIn
 from catalog.models import Product, ProductUnit
 from core.errors import BusinessRuleError
-from core.services import audit
 
 from . import services
-from .models import Payment, PaymentMethod, Refund, Sale, SaleItem
-
-
-class PaymentMethodSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = PaymentMethod
-        fields = ["id", "code", "name", "is_cash", "reference_label", "is_active", "sort_order"]
-
-
-class PaymentMethodViewSet(viewsets.ModelViewSet):
-    """Everyone signed in sees the accepted methods; only the Owner can add or switch them on/off."""
-
-    serializer_class = PaymentMethodSerializer
-    pagination_class = None
-    http_method_names = ["get", "post", "patch"]
-
-    def get_permissions(self):
-        return [IsSignedIn()] if self.action in ("list", "retrieve") else [IsOwner()]
-
-    def get_queryset(self):
-        qs = PaymentMethod.objects.all()
-        return qs if getattr(self.request.user, "is_owner", False) else qs.filter(is_active=True)
-
-    def perform_create(self, serializer):
-        method = serializer.save()
-        audit(self.request.user, "payment_method.created", method, summary=f"Added payment method '{method.name}'")
-
-    def perform_update(self, serializer):
-        before = PaymentMethodSerializer(serializer.instance).data
-        switching_off = serializer.instance.is_active and serializer.validated_data.get("is_active") is False
-        if switching_off and not PaymentMethod.objects.filter(is_active=True).exclude(pk=serializer.instance.pk).exists():
-            raise BusinessRuleError("At least one payment method must stay switched on, or nothing could be sold.", code="last_method")
-        method = serializer.save()
-        audit(self.request.user, "payment_method.changed", method, summary=f"Changed payment method '{method.name}'",
-              before=before, after=PaymentMethodSerializer(method).data)
+from .models import Payment, PaymentMethod, PaymentProvider, Refund, Sale, SaleItem
 
 
 class SaleItemSerializer(serializers.ModelSerializer):
@@ -68,7 +33,7 @@ class RefundSerializer(serializers.ModelSerializer):
     class Meta:
         model = Refund
         fields = ["id", "sale", "receipt_number", "business_date", "created_at", "total", "method", "method_name",
-                  "reason", "reference", "created_by_name", "items"]
+                  "provider", "provider_name", "reason", "reference", "created_by_name", "items"]
 
     def get_items(self, obj) -> list:
         return [{"sale_item": i.sale_item_id, "product_name": i.sale_item.product_name, "quantity": str(i.quantity),
@@ -77,11 +42,13 @@ class RefundSerializer(serializers.ModelSerializer):
 
 class PaymentSerializer(serializers.ModelSerializer):
     method_name = serializers.CharField(source="method.name", read_only=True)
+    method_icon = serializers.CharField(source="method.icon", read_only=True)
     is_cash = serializers.BooleanField(source="method.is_cash", read_only=True)
 
     class Meta:
         model = Payment
-        fields = ["id", "method", "method_name", "is_cash", "amount", "tendered", "reference", "status"]
+        fields = ["id", "method", "method_name", "method_icon", "is_cash", "provider", "provider_name", "amount", "tendered",
+                  "reference", "status", "created_at"]
 
 
 class SaleSerializer(serializers.ModelSerializer):
@@ -114,6 +81,7 @@ class SaleLineInput(serializers.Serializer):
 
 class SalePaymentInput(serializers.Serializer):
     method = serializers.PrimaryKeyRelatedField(queryset=PaymentMethod.objects.all())
+    provider = serializers.PrimaryKeyRelatedField(queryset=PaymentProvider.objects.all(), required=False, allow_null=True, default=None)
     amount = serializers.DecimalField(max_digits=16, decimal_places=2)
     reference = serializers.CharField(max_length=60, required=False, allow_blank=True, default="")
 
@@ -131,7 +99,7 @@ class SaleListCreateView(generics.ListAPIView):
     serializer_class = SaleSerializer
 
     def get_queryset(self):
-        qs = Sale.objects.select_related("cashier", "business_day", "voided_by").prefetch_related("items__refund_items", "payments__method", "refunds")
+        qs = Sale.objects.select_related("cashier", "business_day", "voided_by").prefetch_related("items__refund_items", "payments__method", "refunds__method")
         user, params = self.request.user, self.request.query_params
         if not user.is_back_office:
             qs = qs.filter(cashier=user)  # a cashier only ever sees their own sales
@@ -216,6 +184,7 @@ class RefundCreateSerializer(serializers.Serializer):
     request_key = serializers.UUIDField()
     reason = serializers.CharField(max_length=300)
     method = serializers.PrimaryKeyRelatedField(queryset=PaymentMethod.objects.all())
+    provider = serializers.PrimaryKeyRelatedField(queryset=PaymentProvider.objects.all(), required=False, allow_null=True, default=None)
     shift = serializers.IntegerField(required=False, allow_null=True)
     reference = serializers.CharField(max_length=60, required=False, allow_blank=True, default="")
     lines = RefundLineInput(many=True, allow_empty=False, error_messages={"empty": "Choose at least one item to refund."})
@@ -236,7 +205,7 @@ class SaleRefundView(APIView):
         shift = CashierShift.objects.filter(pk=data.get("shift")).first() if data.get("shift") else None
         _, created = services.refund_sale(
             sale_id=pk, actor=request.user, request_key=data["request_key"], lines=data["lines"], method=data["method"],
-            reason=data["reason"], shift=shift, reference=data["reference"],
+            reason=data["reason"], shift=shift, reference=data["reference"], provider=data["provider"],
         )
         return Response(SaleSerializer(_sale_for(request, pk)).data, status=201 if created else 200)
 

@@ -26,7 +26,7 @@ describe("collapsible sidebar groups", () => {
     expect(group("Admin")).toHaveAttribute("aria-expanded", "true");
     expect(shownLinks()).toEqual(["Products", "Stock", "Receive Stock", "Users", "Settings", "Setup"]);
     await userEvent.click(group("Money & Reports"));
-    expect(shownLinks()).toEqual(["Products", "Stock", "Receive Stock", "Daily Closing", "Expenses", "Reports", "Audit History", "Users", "Settings", "Setup"]);
+    expect(shownLinks()).toEqual(["Products", "Stock", "Receive Stock", "Payments", "Daily Closing", "Expenses", "Reports", "Audit History", "Users", "Settings", "Setup"]);
     await userEvent.click(group("Admin"));
     expect(group("Admin")).toHaveAttribute("aria-expanded", "false");
     expect(shownLinks()).not.toContain("Users");
@@ -45,7 +45,7 @@ describe("collapsible sidebar groups", () => {
   it("keeps each role's own menu: the cashier has Selling only, the accountant no Users or Settings", async () => {
     render(<SidebarNav role="CASHIER" pathname="/sheet" />);
     expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Selling"]);
-    expect(shownLinks()).toEqual(["Home", "Today's Sales", "Daily Sheet", "Close Day"]);
+    expect(shownLinks()).toEqual(["Home", "Today's Sales", "Daily Sheet", "Close Day", "My Payments"]);
     cleanup();
     render(<SidebarNav role="ACCOUNTANT" pathname="/" />);
     await userEvent.click(group("Admin"));

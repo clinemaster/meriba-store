@@ -9,6 +9,9 @@ import { useColumnVisibility } from "@/lib/useColumnVisibility";
 import { api, errorMessage, type Page } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { centsToApi, formatDate, formatTZS, toCents } from "@/lib/money";
+import { PaymentCategoryCards } from "@/components/PaymentSummary";
+import type { PaymentSummary } from "@/lib/types";
+import Link from "next/link";
 import type { CurrentDay, Day, Shift } from "@/lib/types";
 import { useLoad } from "@/lib/useLoad";
 
@@ -43,6 +46,7 @@ export default function ClosingPage() {
   const [corrDirection, setCorrDirection] = useState<"down" | "up">("down");
   const [corrKey, setCorrKey] = useState("");
   const [counted, setCounted] = useState("");
+  const [reviewed, setReviewed] = useState(false);
   // Owner only: change an open shift's float, or the open day's opening balance.
   const [floatFor, setFloatFor] = useState<Shift | null>(null);
   const [editingOpening, setEditingOpening] = useState(false);
@@ -73,7 +77,9 @@ export default function ClosingPage() {
       setNote("");
       setCounted("");
       setTicked([]);
+      setReviewed(false);
       reloadAll();
+      payments.reload();
     } catch (err) {
       setProblem(errorMessage(err));
     } finally {
@@ -82,6 +88,8 @@ export default function ClosingPage() {
   }
 
   const figures = current.data?.day_figures;
+  const dayDate = current.data?.day?.date;
+  const payments = useLoad<PaymentSummary>(dayDate ? `/payment-summary/?date_from=${dayDate}&date_to=${dayDate}` : null);
   const isOwner = user?.role === "OWNER";
   const openDay = current.data?.day;
   const amountCents = toCents(amount);
@@ -90,7 +98,11 @@ export default function ClosingPage() {
 
   return (
     <div className="space-y-6">
-      <PageTitle title="Daily Closing" help="Review each cashier's closing, check non-cash payments against the phone or bank records, and see the cumulative sales balance day by day." />
+      <PageTitle
+        title="Daily Closing"
+        help="Review each cashier's closing, check non-cash payments against the phone or bank records, and see the cumulative sales balance day by day."
+        action={dayDate ? <Link href={`/payments?date_from=${dayDate}&date_to=${dayDate}`} className="btn-secondary min-h-[2.5rem]">Open Payments</Link> : undefined}
+      />
 
       {current.data?.day && figures && (
         <section className="card">
@@ -106,6 +118,27 @@ export default function ClosingPage() {
               <tr><td className="font-semibold">Cumulative sales balance (so far)</td><td className="num font-semibold">{formatTZS(figures.closing_cumulative_sales)}</td></tr>
             </tbody>
           </table>
+          {payments.data && (
+            <div className="mt-5">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+                <h3 className="text-lg font-bold">Payments today, by category and provider</h3>
+              </div>
+              <table className="table mb-3 max-w-xl">
+                <tbody>
+                  <tr><td>Net sales today</td><td className="num">{formatTZS(payments.data.metrics.net_sales)}</td></tr>
+                  <tr><td>Payments collected</td><td className="num">{formatTZS(payments.data.metrics.payments_collected)}</td></tr>
+                  <tr><td>Less refunds paid today</td><td className="num">− {formatTZS(payments.data.metrics.refunds_issued)}</td></tr>
+                  <tr><td className="font-semibold">Net collections</td><td className="num font-semibold">{formatTZS(payments.data.metrics.net_collections)}</td></tr>
+                  <tr><td>Outstanding credit</td><td className="num">{formatTZS(payments.data.metrics.outstanding_receivables)}</td></tr>
+                  <tr><td className="font-semibold">Reconciliation difference</td>
+                    <td className={`num font-semibold ${toCents(payments.data.metrics.reconciliation_difference) === 0 ? "" : "text-red-800"}`}>
+                      {toCents(payments.data.metrics.reconciliation_difference) === 0 ? "✔\uFE0E " : "⚠\uFE0E "}{formatTZS(payments.data.metrics.reconciliation_difference)}
+                    </td></tr>
+                </tbody>
+              </table>
+              <PaymentCategoryCards categories={payments.data.categories} query={{ from: dayDate!, to: dayDate! }} palette={payments.data.categories.map((c) => c.id!)} />
+            </div>
+          )}
           {current.data.day.opening_changes.length > 0 && (
             <div className="mt-2 text-sm text-slate-700">
               {current.data.day.opening_changes.map((c) => (
@@ -225,11 +258,18 @@ export default function ClosingPage() {
             <fieldset className="mb-3">
               <legend className="mb-1 font-semibold">Tick each total after checking it against the phone or bank record</legend>
               {review.payment_totals.filter((t) => !t.is_cash).map((t) => (
-                <label key={t.method} className="flex items-center gap-3 py-1">
-                  <input type="checkbox" className="h-6 w-6" disabled={t.is_verified} checked={t.is_verified || ticked.includes(t.method)}
-                    onChange={(e) => setTicked((list) => (e.target.checked ? [...list, t.method] : list.filter((id) => id !== t.method)))} />
-                  <span>{t.name}: <span className="font-semibold">{formatTZS(t.amount)}</span> in {t.count} sale(s){t.is_verified ? " · already checked" : ""}</span>
-                </label>
+                <div key={t.method} className="py-1">
+                  <label className="flex items-center gap-3">
+                    <input type="checkbox" className="h-6 w-6" disabled={t.is_verified} checked={t.is_verified || ticked.includes(t.method)}
+                      onChange={(e) => setTicked((list) => (e.target.checked ? [...list, t.method] : list.filter((id) => id !== t.method)))} />
+                    <span>{t.name}: <span className="font-semibold">{formatTZS(t.amount)}</span> in {t.count} sale(s){t.is_verified ? " · already checked" : ""}</span>
+                  </label>
+                  {(t.providers ?? []).length > 0 && (
+                    <ul className="ml-9 text-sm text-slate-700">
+                      {t.providers!.map((x) => <li key={x.provider ?? "none"}>— {x.name}: <span className="font-semibold tabular-nums">{formatTZS(x.amount)}</span> ({x.count})</li>)}
+                    </ul>
+                  )}
+                </div>
               ))}
             </fieldset>
           )}
@@ -310,14 +350,18 @@ export default function ClosingPage() {
           <div className="space-y-3">
             <Field label="Cash counted in the drawer (TZS)">{(p) => <input {...p} className="input" inputMode="numeric" value={counted} onChange={(e) => setCounted(e.target.value)} autoFocus />}</Field>
             <Field label="Note" hint="Needed if the cash does not match.">{(p) => <textarea {...p} className="input" rows={2} value={note} onChange={(e) => setNote(e.target.value)} />}</Field>
+            <label className="flex items-start gap-3">
+              <input type="checkbox" className="mt-1 h-6 w-6" checked={reviewed} onChange={(e) => setReviewed(e.target.checked)} />
+              <span>I have checked this shift&apos;s payment breakdown (cash, each mobile money provider and each bank).</span>
+            </label>
           </div>
           {problem && <div className="mt-3"><Alert kind="error">{problem}</Alert></div>}
           <div className="mt-4 flex gap-3">
-            <button className="btn-primary" disabled={busy || asking || counted.trim() === ""}
+            <button className="btn-primary" disabled={busy || asking || counted.trim() === "" || !reviewed}
               onClick={() => confirm({
                 message: `Close ${closing.cashier_name}'s shift with ${formatTZS(toCents(counted), true)} counted in the drawer? They cannot sell on it afterwards. Your name is recorded.`,
                 yes: "Yes, close the shift",
-                run: () => run(() => api(`/shifts/${closing.id}/close/`, { method: "POST", body: { counted_cash: centsToApi(toCents(counted)), note } })),
+                run: () => run(() => api(`/shifts/${closing.id}/close/`, { method: "POST", body: { counted_cash: centsToApi(toCents(counted)), note, payments_reviewed: reviewed } })),
               })}>
               {busy ? "Closing…" : "Close this shift"}
             </button>

@@ -90,7 +90,7 @@ def test_a_live_day_follows_the_same_formulas_and_carries_forward(owner, account
     assert live["totals"] == {"purchases": "360", "sales": "35", "total_sales": "157500", "profit": "26250", "stock": "3415500", "total_purchases": "1350000"}
     assert not DailySheetLine.objects.exists()
 
-    till.post(f"/api/v1/shifts/{shift['id']}/close/", {"counted_cash": "157500"}, format="json")
+    till.post(f"/api/v1/shifts/{shift['id']}/close/", {"counted_cash": "157500", "payments_reviewed": True}, format="json")
     kept = DailySheetLine.objects.get()
     assert (kept.opening, kept.purchases, kept.sales, kept.closing_stock, kept.total_sales, kept.profit, kept.stock) == (434, 360, 35, 759, 157500, 26250, 3415500)
 
@@ -151,7 +151,13 @@ def test_the_cashier_types_sales_on_todays_sheet_without_seeing_costs(owner, cas
     assert not {"purchase_price", "profit", "total_purchases"} & (set(row) | set(data["totals"]))
     assert (data["previous_date"], data["next_date"]) == (None, None)
     assert till.get("/api/v1/daily-sheet/", {"date": "2026-11-01"}).status_code == 403
-    assert till.get("/api/v1/daily-sheet/?download=csv").status_code == 403
+    exported = till.get("/api/v1/daily-sheet/?download=csv")
+    assert exported.status_code == 200 and exported["Content-Type"].startswith("text/csv")
+    export_rows = exported.content.decode("utf-8-sig").splitlines()
+    cashier_headings = [heading for heading in HEADINGS if heading not in {"Purchase price", "Profit", "T.Purchases"}]
+    assert export_rows[1] == ",".join(cashier_headings)
+    assert len(export_rows[2].split(",")) == len(cashier_headings)
+    assert till.get("/api/v1/daily-sheet/?date=2026-11-01&download=csv").status_code == 403
     assert get(client_for(owner))["lines"][0]["profit"] == "26250"  # the office still sees the whole sheet
 
 def test_empty_profit_cells_stay_empty_and_are_flagged_for_the_owner(owner, accountant):
@@ -210,7 +216,7 @@ def test_stock_total_falls_by_each_days_sales_and_carries_forward(owner, account
     assert get(office)["totals"]["stock"] == "72682500"  # given back once, and only once
     assert get(office)["totals"]["stock"] == "72682500"  # looking again changes nothing
 
-    till.post(f"/api/v1/shifts/{shift['id']}/close/", {"counted_cash": "45000"}, format="json")
+    till.post(f"/api/v1/shifts/{shift['id']}/close/", {"counted_cash": "45000", "payments_reviewed": True}, format="json")
     set_today(D2)
     start_shift(till)
     assert get(office)["totals"]["stock"] == "72682500"  # yesterday's closing value is today's starting value
@@ -231,7 +237,7 @@ def test_owner_sees_the_stock_value_after_each_days_sales(owner, accountant, cas
     first = office.get("/api/v1/daily-sheet/stock-value/").data["stock_value"]
     assert (first["previous_value"], first["opening_value"], first["deliveries"], first["sales"], first["other"], first["closing_value"]) == (
         None, "45750000", "0", "45000", "0", "45705000")  # 45,750,000 - 45,000
-    till.post(f"/api/v1/shifts/{shift['id']}/close/", {"counted_cash": "45000"}, format="json")
+    till.post(f"/api/v1/shifts/{shift['id']}/close/", {"counted_cash": "45000", "payments_reviewed": True}, format="json")
 
     # Next day: 5 crates delivered and the same 5 sold (as on 16 Oct), and Konyagi goes up by 500.
     boss.patch(f"/api/v1/products/{a.pk}/", {"selling_price": "5000"}, format="json")
@@ -257,7 +263,7 @@ def test_home_page_stock_value_falls_back_to_the_latest_day(owner, cashier, shop
     set_today(D1)
     shift = start_shift(till)
     sell(till, [(product, 2)], [(shop.cash, 9000)])
-    till.post(f"/api/v1/shifts/{shift['id']}/close/", {"counted_cash": "9000"}, format="json")
+    till.post(f"/api/v1/shifts/{shift['id']}/close/", {"counted_cash": "9000", "payments_reviewed": True}, format="json")
     set_today(D2)  # no day started yet
     value = client_for(owner).get("/api/v1/daily-sheet/stock-value/").data["stock_value"]
     assert (str(value["date"]), value["source"], value["sales"], value["closing_value"]) == (str(D1), "CLOSED", "9000", "441000")

@@ -49,3 +49,5 @@ export function StockValue({ value, compact = false }: { value: StockValueStatem
     </div>
   );
 }
+
+//

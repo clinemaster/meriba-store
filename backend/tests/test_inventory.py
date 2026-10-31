@@ -157,13 +157,20 @@ def test_a_product_cannot_be_on_sale_without_a_selling_price(owner):
 def test_adjustment_records_who_when_why_and_keeps_history(accountant, shop, make_product):
     product = make_product(stock=20)
     client = client_for(accountant)
-    no_reason = client.post("/api/v1/stock/adjustments/", count_payload([(product, 18)], reason=""), format="json")
+    damage_payload = {"request_key": str(uuid.uuid4()), "reason": "2 bottles broken",
+                      "lines": [{"product": product.pk, "quantity": "2"}]}
+    no_reason = client.post("/api/v1/stock/damaged/", damage_payload | {"reason": ""}, format="json")
     assert no_reason.status_code == 400
-    done = client.post("/api/v1/stock/adjustments/", count_payload([(product, 18)], reason="2 bottles broken") | {"kind": "DAMAGE"}, format="json")
+    done = client.post("/api/v1/stock/damaged/", damage_payload, format="json")
     assert done.status_code == 201 and stock_of(product) == 18
     movement = InventoryMovement.objects.get(movement_type="ADJUSTMENT")
     assert (movement.quantity_delta, movement.balance_before, movement.balance_after) == (-2, 20, 18)
     assert (movement.user, movement.reason) == (accountant, "2 bottles broken")
+    from inventory.models import StockAdjustmentLine
+    damage = StockAdjustmentLine.objects.get(adjustment__kind="DAMAGE")
+    assert (damage.damaged_quantity, damage.selling_price_at_damage, damage.damage_value,
+            damage.average_cost_at_damage, damage.inventory_cost_damage_value, damage.movement) == (
+                2, 4500, 9000, 1000, 2000, movement)
     assert InventoryMovement.objects.filter(product=product).count() == 2  # opening line still there
     history = client.get(f"/api/v1/stock/movements/?product={product.pk}").data["results"]
     assert [m["movement_type"] for m in history] == ["ADJUSTMENT", "OPENING"]

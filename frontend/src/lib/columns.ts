@@ -75,3 +75,53 @@ export function saveHidden(storage: Pick<Storage, "setItem" | "removeItem"> | nu
     // Storage can be full or blocked (private browsing). The choice still applies until the page is closed.
   }
 }
+
+/* Column order. Stored apart from the hidden list (its own key), so preferences saved before ordering existed still load. */
+
+const ORDER_PREFIX = "meriba.columnorder.v1";
+
+export function orderStorageKey(userId: number | string, tableId: string): string {
+  return `${ORDER_PREFIX}.${userId}.${tableId}`;
+}
+
+/** The table's own order. */
+export function defaultOrder(defs: ColumnDef[]): string[] {
+  return defs.map((d) => d.key);
+}
+
+/**
+ * Makes a stored order safe: unknown keys are dropped, duplicates removed, and columns the table gained since the
+ * order was saved go back to their own place among their neighbours (after the column that precedes them in the table).
+ */
+export function sanitizeOrder(defs: ColumnDef[], order: unknown): string[] {
+  const base = defaultOrder(defs);
+  if (!Array.isArray(order)) return base;
+  const known = new Set(base);
+  const result = [...new Set(order.filter((k): k is string => typeof k === "string" && known.has(k)))];
+  base.forEach((key, i) => {
+    if (result.includes(key)) return;
+    const before = base.slice(0, i).reverse().find((k) => result.includes(k));
+    result.splice(before === undefined ? 0 : result.indexOf(before) + 1, 0, key);
+  });
+  return result;
+}
+
+/** Moves one column one place left (-1) or right (+1). Moving past either end changes nothing. */
+export function moveColumn(order: string[], key: string, delta: -1 | 1): string[] {
+  const from = order.indexOf(key);
+  const to = from + delta;
+  if (from === -1 || to < 0 || to >= order.length) return order;
+  const next = [...order];
+  [next[from], next[to]] = [next[to], next[from]];
+  return next;
+}
+
+export function isDefaultOrder(defs: ColumnDef[], order: string[]): boolean {
+  return defaultOrder(defs).every((k, i) => order[i] === k);
+}
+
+/** The columns in the person's order. */
+export function orderDefs<T extends ColumnDef>(defs: T[], order: string[]): T[] {
+  const byKey = new Map(defs.map((d) => [d.key, d]));
+  return order.map((k) => byKey.get(k)).filter((d): d is T => d !== undefined);
+}

@@ -14,7 +14,7 @@ from catalog.models import Product
 from core.models import Branch, BusinessSettings
 from inventory.models import InventoryMovement
 from inventory.services import post_movement
-from sales.models import PaymentMethod
+from sales.models import PaymentMethod, PaymentProvider
 
 PASSWORD = "Correct-Horse-42"
 
@@ -30,9 +30,16 @@ def shop(db):
     cfg.opening_stock_confirmed_at = timezone.now()
     cfg.save()
     cash, _ = PaymentMethod.objects.get_or_create(code="cash", defaults={"name": "Cash", "is_cash": True, "sort_order": 1})
-    momo, _ = PaymentMethod.objects.get_or_create(code="mobile-money", defaults={"name": "Mobile Money", "sort_order": 2})
-    bank, _ = PaymentMethod.objects.get_or_create(code="bank", defaults={"name": "Bank Transfer", "sort_order": 3})
-    return SimpleNamespace(branch=branch, cfg=cfg, cash=cash, momo=momo, bank=bank)
+    momo, _ = PaymentMethod.objects.get_or_create(code="mobile-money", defaults={"name": "Mobile Money", "sort_order": 2, "requires_provider": True})
+    bank, _ = PaymentMethod.objects.get_or_create(code="bank", defaults={"name": "Bank Transfer", "sort_order": 3, "requires_provider": True})
+    providers = {}
+    for category, names in ((momo, ["M-PESA", "Mixx by Yas", "Airtel Money"]), (bank, ["NMB", "CRDB", "NBC"])):
+        for order, name in enumerate(names, start=1):
+            providers[name], _ = PaymentProvider.objects.get_or_create(
+                category=category, name_key=PaymentProvider.key_for(name),
+                defaults={"name": name, "code": name.lower().replace(" ", "-"), "sort_order": order})
+    return SimpleNamespace(branch=branch, cfg=cfg, cash=cash, momo=momo, bank=bank, mpesa=providers["M-PESA"], mixx=providers["Mixx by Yas"],
+                           airtel=providers["Airtel Money"], nmb=providers["NMB"], crdb=providers["CRDB"], nbc=providers["NBC"])
 
 
 @pytest.fixture
@@ -115,11 +122,19 @@ def stock_of(product) -> Decimal:
     return row.quantity if row else Decimal("0")
 
 
+def _payment(entry) -> dict:
+    """(method, amount) or (method, amount, provider). A category that needs a provider gets its first one when none is named."""
+    method, amount, provider = (*entry, None)[:3]
+    if provider is None and method.requires_provider:
+        provider = method.providers.filter(is_active=True).order_by("sort_order", "id").first()
+    return {"method": method.pk, "amount": str(amount), **({"provider": provider.pk} if provider else {})}
+
+
 def sale_payload(items, payments, key=None) -> dict:
     return {
         "request_key": str(key or uuid.uuid4()),
         "items": [{"product": p.pk, "quantity": str(q)} for p, q in items],
-        "payments": [{"method": m.pk, "amount": str(a)} for m, a in payments],
+        "payments": [_payment(entry) for entry in payments],
     }
 
 
@@ -131,3 +146,7 @@ def start_shift(client, opening_float="0"):
 
 def sell(client, items, payments, key=None):
     return client.post("/api/v1/sales/", sale_payload(items, payments, key), format="json")
+
+
+def close_shift(client, shift_id, counted, note="", reviewed=True):
+    return client.post(f"/api/v1/shifts/{shift_id}/close/", {"counted_cash": str(counted), "note": note, "payments_reviewed": reviewed}, format="json")

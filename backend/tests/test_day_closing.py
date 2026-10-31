@@ -14,7 +14,7 @@ D1, D2, D3, D5 = date(2026, 11, 2), date(2026, 11, 3), date(2026, 11, 4), date(2
 
 
 def close(client, shift_id, counted, note=""):
-    return client.post(f"/api/v1/shifts/{shift_id}/close/", {"counted_cash": str(counted), "note": note}, format="json")
+    return client.post(f"/api/v1/shifts/{shift_id}/close/", {"counted_cash": str(counted), "note": note, "payments_reviewed": True}, format="json")
 
 
 def trade_day(client, shop, product, amount, counted=None):

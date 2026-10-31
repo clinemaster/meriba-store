@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { DashboardInsights, productColor } from "./DashboardInsights";
+import { DashboardInsights } from "./DashboardInsights";
 
 afterEach(() => {
   cleanup();
@@ -16,6 +16,7 @@ describe("dashboard sales trend", () => {
         ? [
             { date: "2026-10-13", net_sales: "874500" },
             { date: "2026-10-14", net_sales: "954500" },
+            { date: "2026-10-15", net_sales: "-12000" },
           ]
         : [];
       return Promise.resolve(new Response(JSON.stringify({ rows }), {
@@ -25,16 +26,18 @@ describe("dashboard sales trend", () => {
     }));
   });
 
-  it("uses a distinct, stable color for each weekday's sales bar", async () => {
+  it("draws each day in its own colour and highlights negative sales", async () => {
     render(<DashboardInsights today="2026-10-16" />);
     const trend = await screen.findByLabelText("Net sales for the last seven days");
 
-    await waitFor(() => expect(trend.querySelectorAll('[aria-hidden="true"] > div')).toHaveLength(2));
+    await waitFor(() => expect(trend.querySelectorAll('[aria-hidden="true"] > div')).toHaveLength(3));
     const bars = trend.querySelectorAll('[aria-hidden="true"] > div');
 
-    expect(bars[0]).toHaveClass("bg-amber-500");
-    expect(bars[1]).toHaveClass("bg-emerald-600");
-    expect(bars[0].className).not.toBe(bars[1].className);
+    const colors = Array.from(bars, (bar) => bar.style.backgroundColor);
+    expect(colors.every(Boolean)).toBe(true);
+    expect(new Set(colors).size).toBe(bars.length);
+    expect(trend).toHaveTextContent("-TZS 12,000");
+    expect(screen.getByText("-TZS 12,000")).toHaveClass("text-danger");
     expect(trend).toHaveTextContent("Tue");
     expect(trend).toHaveTextContent("Wed");
   });
@@ -49,6 +52,7 @@ describe("dashboard gross profit by product", () => {
     { code: "P5", product: "Maji Makubwa afya", gross_profit: "29500" },
     { code: "P6", product: "Safari lager", gross_profit: "12000" },
     { code: "P7", product: "Coca-Cola 500ml", gross_profit: "8000" },
+    { code: "P9", product: "Sold below cost", gross_profit: "-1500" },
     { code: "P8", product: "Unknown cost item", gross_profit: null },
   ];
 
@@ -76,7 +80,7 @@ describe("dashboard gross profit by product", () => {
       "Maji Makubwa afya",
     ]);
 
-    fireEvent.click(screen.getByRole("button", { name: "Show all 7 products" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show all 8 products" }));
     expect(namesIn(chart)).toEqual([
       "kaswagara",
       "Konyagi ndogo 200 mls",
@@ -85,6 +89,7 @@ describe("dashboard gross profit by product", () => {
       "Maji Makubwa afya",
       "Safari lager",
       "Coca-Cola 500ml",
+      "Sold below cost",
     ]);
     expect(chart).not.toHaveTextContent("Unknown cost item");
 
@@ -92,16 +97,17 @@ describe("dashboard gross profit by product", () => {
     expect(namesIn(chart)).toHaveLength(5);
   });
 
-  it("gives each product its own color, tied to the product rather than its rank", async () => {
+  it("draws every product in its own colour and labels a loss", async () => {
     render(<DashboardInsights today="2026-10-16" />);
     const chart = await screen.findByLabelText("Gross profit by product, known costs only");
-    fireEvent.click(screen.getByRole("button", { name: "Show all 7 products" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show all 8 products" }));
 
     const bars = Array.from(chart.querySelectorAll('[aria-hidden="true"] > div'));
-    const order = ["P2", "P3", "P1", "P4", "P5", "P6", "P7"];
-    bars.forEach((bar, i) => expect(bar).toHaveClass(productColor(order[i])));
-    expect(new Set(bars.map((bar) => bar.className)).size).toBe(bars.length);
-    expect(productColor("P2")).toBe(productColor("P2"));
+    expect(bars).toHaveLength(8);
+    const colors = bars.map((bar) => (bar as HTMLElement).style.backgroundColor);
+    expect(colors.every(Boolean)).toBe(true);
+    expect(new Set(colors).size).toBe(bars.length);
+    expect(chart).toHaveTextContent("-TZS 1,500 (loss)");
   });
 
   it("grows each bar from empty to its value when the dashboard opens", async () => {

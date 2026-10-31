@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 
 import { api, errorMessage } from "@/lib/api";
 import { formatDate, formatQty, formatTZS, toCents } from "@/lib/money";
+import { activeProviders, iconFor, paymentLabel, usableCategories } from "@/lib/payments";
 import type { CurrentDay, PaymentMethod, Sale } from "@/lib/types";
 import { useLoad } from "@/lib/useLoad";
 
@@ -18,6 +19,7 @@ export function RefundForm({ sale, current, onDone, onCancel }: {
   const [quantities, setQuantities] = useState<Record<number, string>>({});
   const [damaged, setDamaged] = useState<Record<number, boolean>>({});
   const [methodId, setMethodId] = useState<number | null>(null);
+  const [providerId, setProviderId] = useState<number | null>(null);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -32,8 +34,10 @@ export function RefundForm({ sale, current, onDone, onCancel }: {
     });
   const chosen = lines.filter((l) => l.quantity > 0);
   const totalCents = chosen.reduce((sum, l) => sum + l.cents, 0);
-  const active = (methods.data ?? []).filter((m) => m.is_active);
+  const active = usableCategories(methods.data);
   const method = active.find((m) => m.id === methodId) ?? null;
+  const providers = activeProviders(method);
+  const provider = providers.find((p) => p.id === providerId) ?? null;
   const openShifts = current?.open_shifts ?? [];
   const mustChooseDrawer = !!method?.is_cash && openShifts.length > 1;
 
@@ -41,11 +45,12 @@ export function RefundForm({ sale, current, onDone, onCancel }: {
     if (busy) return;
     if (chosen.length === 0) return setProblem("Type how many of each item are being refunded.");
     if (!method) return setProblem("Choose how the money is being given back.");
+    if (method.requires_provider && !provider) return setProblem(`Choose which ${method.name} provider the money is sent through.`);
     if (reason.trim().length < 5) return setProblem("Write the reason for this refund.");
     if (mustChooseDrawer && !drawer) return setProblem("Choose which cashier's drawer the cash is taken from.");
     setProblem(null);
     const shelf = chosen.some((l) => !damaged[l.item.id]) ? " Items not marked damaged go back on the shelf." : "";
-    confirm({ message: `Give back ${formatTZS(totalCents, true)} by ${method.name}?${shelf} This cannot be undone.`, yes: "Yes, refund", run: submit });
+    confirm({ message: `Give back ${formatTZS(totalCents, true)} by ${paymentLabel(method.name, provider?.name)}?${shelf} This cannot be undone.`, yes: "Yes, refund", danger: true, run: submit });
   }
 
   async function submit() {
@@ -56,7 +61,7 @@ export function RefundForm({ sale, current, onDone, onCancel }: {
       const updated = await api<Sale>(`/sales/${sale.id}/refund/`, {
         method: "POST",
         body: {
-          request_key: requestKey.current, reason, method: method.id, shift: mustChooseDrawer ? Number(drawer) : null,
+          request_key: requestKey.current, reason, method: method.id, provider: provider?.id ?? null, shift: mustChooseDrawer ? Number(drawer) : null,
           lines: chosen.map((l) => ({ sale_item: l.item.id, quantity: l.quantity, restock: !damaged[l.item.id] })),
         },
       });
@@ -100,12 +105,22 @@ export function RefundForm({ sale, current, onDone, onCancel }: {
         <legend className="mb-1 font-semibold">How is the money given back?</legend>
         <div className="flex flex-wrap gap-2">
           {active.map((m) => (
-            <button key={m.id} type="button" role="radio" aria-checked={methodId === m.id} onClick={() => setMethodId(m.id)}
+            <button key={m.id} type="button" role="radio" aria-checked={methodId === m.id} onClick={() => { setMethodId(m.id); setProviderId(null); }}
               className={`btn border-2 ${methodId === m.id ? "border-brand-700 bg-brand-600 text-white" : "border-slate-300 bg-white"}`}>
-              {methodId === m.id ? "✔ " : ""}{m.name}
+              <span aria-hidden className="mr-1">{methodId === m.id ? "✔" : iconFor(m.icon)}</span>{m.name}
             </button>
           ))}
         </div>
+        {method?.requires_provider && (
+          <div className="mt-2 flex flex-wrap gap-2" role="radiogroup" aria-label={`${method.name} provider`}>
+            {providers.map((p) => (
+              <button key={p.id} type="button" role="radio" aria-checked={providerId === p.id} onClick={() => setProviderId(p.id)}
+                className={`btn min-h-[2.75rem] border-2 ${providerId === p.id ? "border-brand-700 bg-brand-600 text-white" : "border-slate-300 bg-white"}`}>
+                {providerId === p.id ? "✔ " : ""}{p.name}
+              </button>
+            ))}
+          </div>
+        )}
         {method?.is_cash && <p className="mt-1 text-sm text-slate-600">Cash is taken from the open cashier drawer and lowers the cash expected at closing.</p>}
         {mustChooseDrawer && (
           <div className="mt-2 max-w-sm">

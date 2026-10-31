@@ -14,7 +14,7 @@ import { useLoad } from "@/lib/useLoad";
 // The stock reports send each product's level as its label ("Low stock"); shown with its colour and icon.
 const STOCK_BY_LABEL = new Map(STOCK_ORDER.map((s) => [STOCK_LEVELS[s].label, s]));
 
-type ReportInfo = { key: string; title: string; uses_dates: boolean };
+type ReportInfo = { key: string; title: string; uses_dates: boolean; section?: string };
 type Column = { key: string; label: string; kind: "money" | "quantity" | "text" | "date" };
 type Report = {
   title: string; uses_dates: boolean; date_from: string | null; date_to: string | null; columns: Column[];
@@ -30,9 +30,19 @@ const HELP: Record<string, string> = {
   "stock-on-hand": "What the system says is on the shelves now. Value uses each product's purchase cost where one is recorded.",
   "low-stock": "Products at or below their low-stock level. Suggested order = target − in stock.",
   "stock-daily": "For each product: opening + received − sold + returned ± counts = closing. “Ledger check” should always be 0.",
+  "damage-register": "Confirmed damage records, their stock movements and price snapshots. Reversed records remain visible but are excluded from damage totals.",
+  "damage-daily": "Daily damaged quantity and valuation. Damage at selling price is a retail valuation, not sales revenue or a cash expense.",
+  "damage-monthly": "Monthly damaged quantity and valuation, based on the business date recorded at confirmation.",
+  "damage-by-product": "Confirmed damage quantity and value by product for the selected period.",
+  "damage-by-branch": "Confirmed damage quantity and value by branch for the selected period.",
   purchases: "Deliveries recorded on the Receive Stock page.",
   expenses: "Recorded expenses (cancelled ones are left out).",
   "financial-summary": "Sales, purchases and expenses side by side. This is not a profit figure.",
+  "payment-daily": "Per business day: sales beside the money collected by each category. Net collections = collected − refunds paid. Reconciliation difference = net collections − (net sales − corrections − outstanding credit), and should be 0.",
+  "payment-weekly": "As the daily reconciliation, one line per week (Monday to Sunday).",
+  "payment-monthly": "As the daily reconciliation, one line per month.",
+  "payment-providers": "Money collected through each provider (M-PESA, NMB, …). The lines add up to the payments collected. “Checked” means verified against the phone or bank statement.",
+  "payment-cashiers": "Money each cashier took, by category, and refunds given on their sales.",
 };
 
 function show(value: string | number | null | undefined, kind: Column["kind"]): string {
@@ -58,9 +68,18 @@ export default function ReportsPage() {
   const [key, setKey] = useBackState("key", "");
   const [from, setFrom] = useBackState("from", firstOfMonth());
   const [to, setTo] = useBackState("to", today());
+  // Arriving from a Payments card (/reports?key=payment-daily&date_from=…) opens that report for those dates.
+  useEffect(() => {
+    const asked = new URLSearchParams(window.location.search);
+    const date = (k: string) => (/^\d{4}-\d{2}-\d{2}$/.test(asked.get(k) ?? "") ? asked.get(k)! : null);
+    if (asked.get("key")) setKey(asked.get("key")!);
+    if (date("date_from")) setFrom(date("date_from")!);
+    if (date("date_to")) setTo(date("date_to")!);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!key && list.data?.length) setKey(list.data[0].key);
   }, [key, list.data]);
+  const sections = [...new Set((list.data ?? []).map((r) => r.section ?? "Reports"))];
 
   const info = list.data?.find((r) => r.key === key);
   const badDates = !!info?.uses_dates && (!from || !to || from > to);
@@ -81,7 +100,11 @@ export default function ReportsPage() {
           <Field label="Report">
             {(p) => (
               <select {...p} className="input" value={key} onChange={(e) => setKey(e.target.value)}>
-                {(list.data ?? []).map((r) => <option key={r.key} value={r.key}>{r.title}</option>)}
+                {sections.map((section) => (
+                  <optgroup key={section} label={section}>
+                    {(list.data ?? []).filter((r) => (r.section ?? "Reports") === section).map((r) => <option key={r.key} value={r.key}>{r.title}</option>)}
+                  </optgroup>
+                ))}
               </select>
             )}
           </Field>
@@ -103,9 +126,11 @@ export default function ReportsPage() {
             {HELP[key] && <p className="mt-1 max-w-3xl text-sm text-slate-600">{HELP[key]}</p>}
           </div>
           {report.data && report.data.rows.length > 0 && (
-            <div className="no-print flex flex-wrap items-center gap-2">
+            <div className="no-print ml-auto flex flex-wrap items-center justify-end gap-2">
               <ColumnPicker visibility={cols} />
-              <a className="btn-secondary" href={`/api/v1/reports/${key}/${query}${query ? "&" : "?"}download=csv`}>Download for Excel (CSV)</a>
+              <a className="btn-secondary" href={`/api/v1/reports/${key}/${query}${query ? "&" : "?"}download=xlsx`}>Download Excel</a>
+              <a className="btn-secondary" href={`/api/v1/reports/${key}/${query}${query ? "&" : "?"}download=csv`}>Download CSV</a>
+              <button type="button" className="btn-secondary" onClick={() => window.print()} title="Choose “Save as PDF” as the printer">Print / Save as PDF</button>
             </div>
           )}
         </div>
@@ -121,7 +146,7 @@ export default function ReportsPage() {
                 <tr key={i}>
                   {shown.map((c) => {
                     const level = c.key === "status" ? STOCK_BY_LABEL.get(String(row[c.key])) : undefined;
-                    return <td key={c.key} className={c.kind === "money" || c.kind === "quantity" ? "num" : ""}>{level ? <StockBadge status={level} /> : show(row[c.key], c.kind)}</td>;
+                    return <td key={c.key} className={c.kind === "money" || c.kind === "quantity" ? "num whitespace-nowrap" : ""}>{level ? <StockBadge status={level} /> : show(row[c.key], c.kind)}</td>;
                   })}
                 </tr>
               ))}

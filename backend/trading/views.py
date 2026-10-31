@@ -14,7 +14,8 @@ from .models import BusinessDay, CashierShift
 def _figures_json(figures: dict) -> dict:
     out = {k: (str(v) if k not in ("sale_count", "voided_count", "payments") else v) for k, v in figures.items()}
     if "payments" in figures:
-        out["payments"] = [{**p, "amount": str(p["amount"])} for p in figures["payments"]]
+        out["payments"] = [{**p, "amount": str(p["amount"]), "providers": [{**x, "amount": str(x["amount"])} for x in p.get("providers", [])]}
+                           for p in figures["payments"]]
     return out
 
 
@@ -28,7 +29,7 @@ class DaySerializer(serializers.ModelSerializer):
         fields = [
             "id", "date", "status", "status_label", "opening_cumulative_sales", "gross_sales", "discounts", "voids",
             "refunds", "adjustments", "net_sales", "closing_cumulative_sales", "opened_at", "closed_at", "corrections",
-            "opening_changes",
+            "opening_changes", "payment_snapshot",
         ]
 
     def get_opening_changes(self, obj) -> list:
@@ -66,7 +67,8 @@ class ShiftSerializer(serializers.ModelSerializer):
     def get_payment_totals(self, obj) -> list:
         return [
             {"method": t.payment_method_id, "name": t.payment_method.name, "is_cash": t.payment_method.is_cash,
-             "amount": str(t.recorded_amount), "count": t.transaction_count, "is_verified": t.is_verified}
+             "amount": str(t.recorded_amount), "count": t.transaction_count, "is_verified": t.is_verified,
+             "providers": t.provider_breakdown}
             for t in obj.payment_totals.select_related("payment_method")
         ]
 
@@ -151,6 +153,8 @@ class ShiftFloatView(APIView):
 class CloseShiftSerializer(serializers.Serializer):
     counted_cash = serializers.DecimalField(max_digits=16, decimal_places=2, min_value=0)
     note = serializers.CharField(max_length=500, required=False, allow_blank=True, default="")
+    # The person closing confirms they have checked the payment breakdown by category and provider.
+    payments_reviewed = serializers.BooleanField(required=False, default=False)
 
 
 def _shift_for(request, pk) -> CashierShift:
@@ -184,7 +188,8 @@ class CloseShiftView(APIView):
         ser.is_valid(raise_exception=True)
         _shift_for(request, pk)
         shift, _ = services.close_shift(
-            shift_id=pk, actor=request.user, counted_cash=ser.validated_data["counted_cash"], note=ser.validated_data["note"]
+            shift_id=pk, actor=request.user, counted_cash=ser.validated_data["counted_cash"], note=ser.validated_data["note"],
+            payments_reviewed=ser.validated_data["payments_reviewed"],
         )
         shift = _shift_for(request, pk)
         body = ShiftSerializer(shift).data

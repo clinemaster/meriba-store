@@ -21,7 +21,7 @@ function StockValueCard() {
   const value = data?.stock_value;
   if (!value) return null;
   return (
-    <section aria-label="Stock value" className="card">
+    <section aria-label="Stock value" className="card border-l-4 border-l-secondary">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-xl font-bold">Stock value {value.source === "LIVE" ? "after today's sales" : `on ${formatDate(value.date)}`}</h2>
         <Link href="/sheet" className="btn-secondary">Daily Sheet</Link>
@@ -46,7 +46,7 @@ function StockLevels() {
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {STOCK_ORDER.map((s) => (
-          <Link key={s} href={`/products?stock=${s}`} className={`rounded-lg border-2 p-4 hover:shadow-md focus-visible:outline focus-visible:outline-2 ${STOCK_LEVELS[s].tile}`}
+          <Link key={s} href={`/products?stock=${s}`} className={`rounded-lg border border-l-4 p-4 hover:shadow-md ${STOCK_LEVELS[s].tile}`}
             aria-label={`${STOCK_LEVELS[s].label}: ${counts[s]} product${counts[s] === 1 ? "" : "s"}. Show them.`}>
             <div className="flex items-center gap-2 text-sm font-semibold"><span aria-hidden>{STOCK_LEVELS[s].icon}</span>{STOCK_LEVELS[s].label}</div>
             <div className="mt-1 text-2xl font-bold tabular-nums">{counts[s]}</div>
@@ -56,7 +56,7 @@ function StockLevels() {
       </div>
       {list.data && list.data.count > 0 && (
         <div className="mt-5">
-          <h3 className="mb-2 font-bold">Needs attention <span className="font-semibold text-amber-800">({list.data.count})</span></h3>
+          <h3 className="mb-2 font-bold">Needs attention <span className="font-semibold text-warning">({list.data.count})</span></h3>
           <div className="overflow-x-auto"><table className="table">
             <thead><tr><th>Product</th><th className="num">In stock</th><th className="num">Low at</th><th className="num">Critical at</th><th className="num">Suggested order</th></tr></thead>
             <tbody>
@@ -125,8 +125,9 @@ export default function HomePage() {
         </div>
         {shift && figures && (
           <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Stat label="Your sales today" value={formatTZS(figures.sales_total)} note={`${figures.sale_count} sales`} strong />
-            {figures.payments.map((p) => <Stat key={p.method} label={p.name} value={formatTZS(p.amount)} note={`${p.count} sales`} />)}
+            <Stat label="Your sales today" value={formatTZS(figures.sales_total)} note={`${figures.sale_count} sales`} strong tone="sales" />
+            {figures.payments.map((p) => <Stat key={p.method} label={p.name} value={formatTZS(p.amount)}
+              note={(p.providers ?? []).length ? (p.providers ?? []).map((x) => `${x.name} ${formatTZS(x.amount)}`).join(" · ") : `${p.count} sales`} />)}
           </div>
         )}
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -158,7 +159,7 @@ export default function HomePage() {
           {data.day_figures ? (
             <div className="grid gap-3 sm:grid-cols-3">
               <Stat label="Opening cumulative sales" value={formatTZS(data.day_figures.opening_cumulative_sales)} note={day?.opening_changes.length ? "Changed by the Owner" : "Carried from the last closed day"} />
-              <Stat label="Net sales today (so far)" value={formatTZS(data.day_figures.net_sales)} note={`${data.day_figures.sale_count} sales`} strong />
+              <Stat label="Net sales today (so far)" value={formatTZS(data.day_figures.net_sales)} note={`${data.day_figures.sale_count} sales`} strong tone="sales" />
               <Stat label="Cumulative sales (so far)" value={formatTZS(data.day_figures.closing_cumulative_sales)} note="Opening + today's net sales. Not cash." />
             </div>
           ) : (
@@ -169,6 +170,7 @@ export default function HomePage() {
           )}
           <div className="mt-5 flex flex-wrap gap-3">
             <Link href="/closing" className="btn-secondary">Daily Closing</Link>
+            <Link href="/payments" className="btn-secondary">Payments</Link>
             <Link href="/products" className="btn-secondary">Products</Link>
             <Link href="/stock" className="btn-secondary">Stock</Link>
             {user.role === "OWNER" && <Link href="/users" className="btn-secondary">Users</Link>}

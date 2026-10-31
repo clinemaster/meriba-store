@@ -68,13 +68,18 @@ class StockAdjustment(models.Model):
         OPENING = "OPENING", "Opening stock count"
         COUNT = "COUNT", "Stock count correction"
         DAMAGE = "DAMAGE", "Damaged or expired"
+        DAMAGE_REVERSAL = "DAMAGE_REVERSAL", "Damage reversal"
         OTHER = "OTHER", "Other"
 
     branch = models.ForeignKey("core.Branch", on_delete=models.PROTECT, related_name="+")
-    kind = models.CharField(max_length=10, choices=Kind.choices)
+    business_date = models.DateField(db_index=True)
+    kind = models.CharField(max_length=20, choices=Kind.choices)
     reason = models.CharField(max_length=300)
+    remarks = models.CharField(max_length=500, blank=True)
+    evidence_reference = models.CharField(max_length=300, blank=True)
     request_key = models.UUIDField(unique=True, help_text="Sent by the screen so a retry cannot post twice")
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    reversal_of = models.OneToOneField("self", null=True, blank=True, on_delete=models.PROTECT, related_name="reversal")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -84,13 +89,24 @@ class StockAdjustment(models.Model):
 class StockAdjustmentLine(AppendOnlyModel):
     adjustment = models.ForeignKey(StockAdjustment, on_delete=models.PROTECT, related_name="lines")
     product = models.ForeignKey("catalog.Product", on_delete=models.PROTECT, related_name="+")
+    movement = models.OneToOneField("inventory.InventoryMovement", null=True, blank=True, on_delete=models.PROTECT, related_name="adjustment_line")
     quantity_before = models.DecimalField(max_digits=14, decimal_places=3)
     quantity_counted = models.DecimalField(max_digits=14, decimal_places=3)
+    damaged_quantity = models.DecimalField(max_digits=14, decimal_places=3, null=True, blank=True)
+    selling_price_at_damage = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    damage_value = models.DecimalField(max_digits=16, decimal_places=2, null=True, blank=True)
+    average_cost_at_damage = models.DecimalField(max_digits=16, decimal_places=4, null=True, blank=True)
+    inventory_cost_damage_value = models.DecimalField(max_digits=16, decimal_places=2, null=True, blank=True)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["adjustment", "product"], name="adjustment_line_once_per_product"),
             models.CheckConstraint(condition=Q(quantity_counted__gte=0), name="adjustment_count_not_negative"),
+            models.CheckConstraint(condition=Q(damaged_quantity__isnull=True) | Q(damaged_quantity__gt=0), name="adjustment_damage_quantity_positive"),
+            models.CheckConstraint(condition=Q(selling_price_at_damage__isnull=True) | Q(selling_price_at_damage__gte=0), name="adjustment_damage_price_not_negative"),
+            models.CheckConstraint(condition=Q(damage_value__isnull=True) | Q(damage_value__gte=0), name="adjustment_damage_value_not_negative"),
+            models.CheckConstraint(condition=Q(average_cost_at_damage__isnull=True) | Q(average_cost_at_damage__gte=0), name="adjustment_damage_cost_not_negative"),
+            models.CheckConstraint(condition=Q(inventory_cost_damage_value__isnull=True) | Q(inventory_cost_damage_value__gte=0), name="adjustment_damage_cost_value_not_negative"),
         ]
 
 

@@ -7,12 +7,20 @@ import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { recordVisit, replaceTo } from "@/lib/backNav";
 import { canOpen } from "@/lib/nav";
+import type { Role } from "@/lib/types";
 
 import { SidebarNav } from "./SidebarNav";
 import { StockAlerts } from "./StockAlerts";
 import { Alert, Spinner } from "./ui";
 
 const ROLE_LABEL = { OWNER: "Owner", ACCOUNTANT: "Accountant", CASHIER: "Cashier" } as const;
+
+/** The page asked for before signing in, if it is a page of this system that this role may open; otherwise the dashboard. */
+function pageAfterSignIn(role: Role): string {
+  const next = new URLSearchParams(window.location.search).get("next") ?? "";
+  if (!next.startsWith("/") || next.startsWith("//") || next.startsWith("/login")) return "/";
+  return canOpen(role, next.split(/[?#]/)[0]) ? next : "/";
+}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, loading, signOut } = useAuth();
@@ -38,11 +46,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // The Back button's trail. This runs before the redirects below so a redirect's target is not mistaken for this page.
   useEffect(() => recordVisit(pathname), [pathname]);
 
+  // Someone who opens a page while signed out (say /products) is taken back to it after signing in.
+  // Signing out goes to a plain sign-in page, so the next person starts on the dashboard.
+  const wasSignedIn = useRef(false);
   useEffect(() => {
     if (loading) return;
-    if (!user && !onLogin) replaceTo(router, "/login");
-    else if (user && onLogin) replaceTo(router, "/");
+    if (!user && !onLogin) replaceTo(router, wasSignedIn.current || pathname === "/" ? "/login" : `/login?next=${encodeURIComponent(pathname + window.location.search)}`);
+    else if (user && onLogin) replaceTo(router, pageAfterSignIn(user.role));
     else if (user?.must_change_password && pathname !== "/change-password") replaceTo(router, "/change-password");
+    wasSignedIn.current = Boolean(user);
   }, [loading, user, onLogin, pathname, router]);
 
   // Choosing a page closes the phone menu.
@@ -63,10 +75,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen">
-      <header ref={header} className="no-print sticky top-0 z-30 bg-gradient-to-r from-[#6342c9] to-[#7c60db] text-white">
+      <header ref={header} className="no-print sticky top-0 z-30 border-b border-primary-dark bg-primary text-white [--focus:251_191_36]">
         <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5">
           <div className="flex items-center gap-3">
-            <button type="button" className="rounded-lg border border-white/60 px-3 py-1.5 font-semibold hover:bg-white/10 lg:hidden"
+            <button type="button" className="min-h-[2.5rem] rounded-lg border border-white/60 px-3 py-1.5 font-semibold hover:bg-primary-light lg:hidden"
               aria-expanded={menuOpen} aria-controls="main-menu" onClick={() => setMenuOpen((open) => !open)}>
               {menuOpen ? "✕ Close" : "☰ Menu"}
             </button>
@@ -74,9 +86,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
           <div className="flex items-center gap-3 text-sm">
             <span>
-              <span className="font-semibold">{user.display_name}</span> · {ROLE_LABEL[user.role]}
+              <span className="font-semibold">{user.display_name}</span> · <span className="text-slate-200">{ROLE_LABEL[user.role]}</span>
             </span>
-            <button onClick={() => signOut()} className="rounded-lg border border-white/60 px-3 py-1.5 font-semibold hover:bg-white/10">
+            <button onClick={() => signOut()} className="min-h-[2.5rem] rounded-lg border border-white/60 px-3 py-1.5 font-semibold hover:bg-primary-light">
               Sign out
             </button>
           </div>
@@ -86,7 +98,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="flex">
         {menuOpen && <button type="button" aria-label="Close the menu" className="no-print fixed inset-0 z-20 bg-slate-900/50 lg:hidden" onClick={() => setMenuOpen(false)} />}
         <nav id="main-menu" aria-label="Main menu" style={{ top: headerHeight, height: `calc(100vh - ${headerHeight}px)` }}
-          className={`no-print fixed left-0 z-20 w-60 shrink-0 overflow-y-auto border-r border-slate-200 bg-white py-2 shadow-xl
+          className={`no-print fixed left-0 z-20 w-60 shrink-0 overflow-y-auto border-r border-primary-dark bg-primary py-2 shadow-xl [--focus:251_191_36]
             lg:sticky lg:z-10 lg:block lg:shadow-none ${menuOpen ? "block" : "hidden"}`}>
           <SidebarNav role={user.role} pathname={pathname} />
         </nav>

@@ -120,7 +120,12 @@ export default function DailySheetPage() {
           )}
 
           <div className="card overflow-x-auto p-0">
-            {data.lines.length > 0 && <div className="flex justify-end p-3 pb-0"><ColumnPicker visibility={cols} /></div>}
+            {data.lines.length > 0 && (
+              <div className="flex flex-wrap justify-end gap-2 p-3 pb-0">
+                {!office && canType && <a className="btn-secondary" href={`/api/v1/daily-sheet/?date=${data.date}&download=csv`}>Download for Excel (CSV)</a>}
+                <ColumnPicker visibility={cols} />
+              </div>
+            )}
             {data.lines.length === 0 ? <p className="p-6 text-slate-600">{data.note}{office && " Use the arrows to move to a day that has a sheet."}</p> : (
               <table className="table min-w-[1050px]">
                 <thead className="sticky top-0 bg-white">

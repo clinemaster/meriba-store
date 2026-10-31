@@ -17,11 +17,13 @@ D1, D2, D3 = date(2026, 11, 2), date(2026, 11, 3), date(2026, 11, 4)
 
 
 def close(client, shift_id, counted, note=""):
-    return client.post(f"/api/v1/shifts/{shift_id}/close/", {"counted_cash": str(counted), "note": note}, format="json")
+    return client.post(f"/api/v1/shifts/{shift_id}/close/", {"counted_cash": str(counted), "note": note, "payments_reviewed": True}, format="json")
 
 
 def refund(client, sale, lines, method, **extra):
     body = {"request_key": str(uuid.uuid4()), "reason": "Customer brought it back", "method": method.pk,
+            # A category that needs a provider (Mobile Money, Bank) refunds through its first one unless told otherwise.
+            "provider": getattr(method.providers.order_by("sort_order").first(), "pk", None) if method.requires_provider else None,
             "lines": [{"sale_item": sale["items"][i]["id"], "quantity": str(q), "restock": restock} for i, q, restock in lines]}
     return client.post(f"/api/v1/sales/{sale['id']}/refund/", body | extra, format="json")
 
@@ -292,7 +294,7 @@ def test_report_export_and_access(cashier, owner, shop, make_product):
     make_product("Konyagi", stock=3, reorder_point=Decimal("5"), target_stock=Decimal("24"))
     office = client_for(owner)
     listed = office.get("/api/v1/reports/").data
-    assert len(listed) == 11
+    assert len(listed) == 21  # existing reports plus the damage register and four damage summaries
     for report in listed:
         assert office.get(f"/api/v1/reports/{report['key']}/").status_code == 200, report["key"]
         assert client_for(cashier).get(f"/api/v1/reports/{report['key']}/").status_code == 403  # incl. cost and financial reports

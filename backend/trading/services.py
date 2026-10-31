@@ -18,6 +18,7 @@ def shift_figures(shift: CashierShift) -> dict:
     """Live totals for one shift, worked out from its recorded sales and payments."""
     from finance.models import Expense
     from sales.models import Payment, PaymentMethod, Refund, Sale
+    from sales.reconciliation import NOT_RECORDED
 
     sales = Sale.objects.filter(shift=shift)
     totals = sales.aggregate(
@@ -32,12 +33,21 @@ def shift_figures(shift: CashierShift) -> dict:
         .values("method")
         .annotate(amount=Sum("amount"), count=Count("sale", distinct=True))
     }
+    by_provider: dict[int, list] = {}
+    for row in (Payment.objects.filter(sale__shift=shift, sale__status=Sale.Status.COMPLETED)
+                .values("method", "provider", "provider__name").annotate(amount=Sum("amount"), count=Count("id"))
+                .order_by("method", "provider__sort_order", "provider")):
+        by_provider.setdefault(row["method"], []).append({
+            "provider": row["provider"], "name": row["provider__name"] or NOT_RECORDED, "amount": row["amount"], "count": row["count"],
+        })
     methods = PaymentMethod.objects.filter(Q(is_active=True) | Q(pk__in=paid.keys()))
     payments = [
         {
-            "method": m.pk, "code": m.code, "name": m.name, "is_cash": m.is_cash,
+            "method": m.pk, "code": m.code, "name": m.name, "is_cash": m.is_cash, "icon": m.icon,
             "amount": paid.get(m.pk, {}).get("amount") or ZERO,
             "count": paid.get(m.pk, {}).get("count") or 0,
+            # Sale counts above count a split sale once per method; these lines count payments.
+            "providers": by_provider.get(m.pk, []) if (m.requires_provider or any(p["provider"] for p in by_provider.get(m.pk, []))) else [],
         }
         for m in methods
     ]
@@ -162,6 +172,9 @@ def _finalise_day(day: BusinessDay, actor) -> None:
     day.status = BusinessDay.Status.CLOSED
     day.closed_by = actor
     day.closed_at = timezone.now()
+    from sales.reconciliation import snapshot_for_day
+
+    day.payment_snapshot = snapshot_for_day(day)
     day.save()
     # Keep the day's Daily Sheet as it stands now, as a saved worksheet would be kept.
     from . import sheet
@@ -170,17 +183,24 @@ def _finalise_day(day: BusinessDay, actor) -> None:
     audit(actor, "day.closed", day, summary=f"Closed business day {day}", after={
         "opening_cumulative_sales": day.opening_cumulative_sales, "net_sales": day.net_sales,
         "closing_cumulative_sales": day.closing_cumulative_sales,
+        "payments_collected": day.payment_snapshot["metrics"]["payments_collected"],
+        "reconciliation_difference": day.payment_snapshot["metrics"]["reconciliation_difference"],
     })
 
 
 @transaction.atomic
-def close_shift(*, shift_id, actor, counted_cash, note="") -> tuple[CashierShift, bool]:
+def close_shift(*, shift_id, actor, counted_cash, note="", payments_reviewed=False) -> tuple[CashierShift, bool]:
     """Record the cash count, freeze the shift, and finalise the day when it was the last open shift."""
     shift = CashierShift.objects.select_for_update(of=("self",)).select_related("cashier").filter(pk=shift_id).first()
     if shift is None or not (actor.is_back_office or shift.cashier_id == actor.pk):
         raise BusinessRuleError("We could not find that shift.", code="not_found", status_code=404)
     if shift.status != CashierShift.Status.OPEN:
         return shift, False  # already closed: a repeated click changes nothing
+    if not payments_reviewed:
+        raise BusinessRuleError(
+            "Check the payment breakdown (cash, each mobile money provider and each bank) and confirm it before closing.",
+            code="payments_not_reviewed", status_code=400,
+        )
 
     # Locking the day makes any sale in progress finish first, and blocks new ones.
     day = BusinessDay.objects.select_for_update().get(pk=shift.business_day_id)
@@ -219,12 +239,15 @@ def close_shift(*, shift_id, actor, counted_cash, note="") -> tuple[CashierShift
     shift.save()
     ShiftPaymentTotal.objects.bulk_create([
         ShiftPaymentTotal(shift=shift, payment_method_id=p["method"], recorded_amount=p["amount"],
-                          transaction_count=p["count"], is_verified=p["is_cash"])
+                          transaction_count=p["count"], is_verified=p["is_cash"],
+                          provider_breakdown=[{**x, "amount": str(x["amount"])} for x in p["providers"]])
         for p in figures["payments"] if p["amount"] > 0
     ])
     audit(actor, "shift.closed", shift, summary=f"Closed shift of {shift.cashier.display_name} on {day}", reason=note, after={
         "sales_total": shift.sales_total, "expected_cash": shift.expected_cash, "counted_cash": counted,
-        "cash_variance": variance, "status": status,
+        "cash_variance": variance, "status": status, "payments_reviewed": True,
+        "payments": [{"category": p["code"], "amount": p["amount"], "providers": {x["name"]: x["amount"] for x in p["providers"]}}
+                     for p in figures["payments"] if p["amount"] > 0],
     })
     if not day.shifts.filter(status=CashierShift.Status.OPEN).exists():
         _finalise_day(day, actor)

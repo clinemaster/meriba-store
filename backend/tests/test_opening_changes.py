@@ -16,7 +16,7 @@ REASON = "Cashier typed the wrong amount"
 
 
 def close(client, shift_id, counted, note=""):
-    return client.post(f"/api/v1/shifts/{shift_id}/close/", {"counted_cash": str(counted), "note": note}, format="json")
+    return client.post(f"/api/v1/shifts/{shift_id}/close/", {"counted_cash": str(counted), "note": note, "payments_reviewed": True}, format="json")
 
 
 def change_float(client, shift_id, amount, reason=REASON):

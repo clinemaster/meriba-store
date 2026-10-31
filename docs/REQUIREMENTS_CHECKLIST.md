@@ -63,6 +63,7 @@ Last updated: 12 Oct 2026.
 | ID | Status | Notes |
 |---|---|---|
 | FR-PAY-01 Cash, mobile money, bank, owner-configured | ✅ | Owner adds methods and switches them on or off in Settings; at least one must stay on |
+| Payment providers and reconciliation (30 Oct 2026) | ✅ | Categories and providers (M-PESA, Mixx by Yas, Airtel Money, NMB, CRDB, NBC) configured by the Owner; provider required for Mobile Money and Bank; Payments dashboard with drill-down, Excel/CSV; payment analysis reports; provider breakdown at closing. See [PAYMENTS.md](PAYMENTS.md) |
 | FR-PAY-02 Split payment | ✅ | Can be switched off |
 | FR-PAY-03/04 Due, paid, outstanding; paid only when covered | ✅ | Under-payment is refused |
 | FR-PAY-05 Credit sales | ⏸ | Not built (Q12) |

@@ -32,6 +32,9 @@ export const NAV: NavItem[] = [
   { href: "/products", label: "Products", roles: OFFICE, group: "Stock", icon: "box" },
   { href: "/stock", label: "Stock", roles: OFFICE, group: "Stock", icon: "archive" },
   { href: "/receive", label: "Receive Stock", roles: OFFICE, group: "Stock", icon: "receive" },
+  { href: "/damaged-products", label: "Damaged Product", roles: OFFICE, group: "Stock", icon: "box" },
+  { href: "/payments", label: "My Payments", roles: ["CASHIER"], group: "Selling", icon: "banknotes" },
+  { href: "/payments", label: "Payments", roles: OFFICE, group: "Money & Reports", icon: "banknotes" },
   { href: "/closing", label: "Daily Closing", roles: OFFICE, group: "Money & Reports", icon: "banknotes" },
   { href: "/expenses", label: "Expenses", roles: OFFICE, group: "Money & Reports", icon: "expenses" },
   { href: "/reports", label: "Reports", roles: OFFICE, group: "Money & Reports", icon: "chart" },
@@ -46,6 +49,8 @@ const EXTRA: NavItem[] = [
   { href: "/day/start", label: "Start Day", roles: ALL, icon: "calendar" },
   { href: "/sale", label: "Daily Sheet", roles: ALL, icon: "document" },  // the old New Sale address; it now opens the Daily Sheet
   { href: "/change-password", label: "Change Password", roles: ALL, icon: "settings" },
+  // Settings is the Owner's; the Accountant may look at (not change) the payment methods.
+  { href: "/settings/payment-methods", label: "Payment Methods", roles: OFFICE, icon: "settings" },
   { href: "/help", label: "Help", roles: ALL, icon: "help" },
   // Taken off the menu at the owner's request (13 Oct 2026). The data is kept; Setup still links here for the open questions.
   { href: "/history", label: "Excel History", roles: OFFICE, icon: "document" },
@@ -72,8 +77,8 @@ export function isActive(href: string, path: string): boolean {
 }
 
 export function canOpen(role: Role, path: string): boolean {
-  const match = [...NAV, ...EXTRA]
-    .filter((item) => (item.href === "/" ? path === "/" : path === item.href || path.startsWith(item.href + "/")))
-    .sort((a, b) => b.href.length - a.href.length)[0];
-  return match ? match.roles.includes(role) : false;
+  const matches = [...NAV, ...EXTRA].filter((item) => (item.href === "/" ? path === "/" : path === item.href || path.startsWith(item.href + "/")));
+  const longest = Math.max(-1, ...matches.map((item) => item.href.length));
+  // The most specific address decides; one address may appear once per role (Payments / My Payments).
+  return matches.some((item) => item.href.length === longest && item.roles.includes(role));
 }

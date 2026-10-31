@@ -10,42 +10,10 @@ type Report = {
   rows: Record<string, string | number | null>[];
 };
 
-const SALES_DAY_COLORS = [
-  "bg-rose-600",
-  "bg-orange-600",
-  "bg-amber-500",
-  "bg-emerald-600",
-  "bg-cyan-600",
-  "bg-blue-600",
-  "bg-violet-600",
-];
-
-const PRODUCT_COLORS = [
-  "bg-emerald-600",
-  "bg-blue-600",
-  "bg-amber-500",
-  "bg-violet-600",
-  "bg-rose-600",
-  "bg-cyan-600",
-  "bg-orange-600",
-  "bg-lime-600",
-  "bg-fuchsia-600",
-  "bg-teal-600",
-  "bg-indigo-600",
-  "bg-pink-600",
-];
-
-// Same product, same colour on every visit: derived from the product code, not its rank.
-export function productColor(code: string): string {
-  let hash = 0;
-  for (const char of code) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-  return PRODUCT_COLORS[hash % PRODUCT_COLORS.length];
-}
-
 const PROFIT_PREVIEW_COUNT = 5;
 
 // Starts empty and grows to its width once painted, so bars animate in on every dashboard visit.
-function AnimatedBar({ width, color, index }: { width: number; color: string; index: number }) {
+function AnimatedBar({ width, color, index, barColor }: { width: number; color: string; index: number; barColor?: string }) {
   const [shown, setShown] = useState(0);
   useEffect(() => {
     const frame = requestAnimationFrame(() => setShown(width));
@@ -54,7 +22,7 @@ function AnimatedBar({ width, color, index }: { width: number; color: string; in
   return (
     <div
       className={`h-full rounded transition-[width] duration-700 ease-out motion-reduce:transition-none ${color}`}
-      style={{ width: `${shown}%`, transitionDelay: `${Math.min(index, 10) * 60}ms` }}
+      style={{ width: `${shown}%`, transitionDelay: `${Math.min(index, 10) * 60}ms`, backgroundColor: barColor }}
     />
   );
 }
@@ -69,11 +37,15 @@ function monthStart(value: string): string {
   return `${value.slice(0, 7)}-01`;
 }
 
+function chartBarColor(index: number): string {
+  return `hsl(${(index * 137.508) % 360} 68% 38%)`;
+}
+
 function SalesTrend({ report }: { report: ReturnType<typeof useLoad<Report>> }) {
   if (report.loading && !report.data) return <Spinner />;
   if (report.error) return <Alert kind="error">{report.error}</Alert>;
   const rows = report.data?.rows ?? [];
-  if (rows.length === 0) return <p className="text-slate-600">No business-day sales recorded in the last seven days.</p>;
+  if (rows.length === 0) return <p className="text-ink-muted">No business-day sales recorded in the last seven days.</p>;
 
   const peak = Math.max(...rows.map((row) => Math.abs(Number(row.net_sales) || 0)), 1);
   return (
@@ -81,14 +53,13 @@ function SalesTrend({ report }: { report: ReturnType<typeof useLoad<Report>> }) 
       {rows.map((row, index) => {
         const value = Number(row.net_sales) || 0;
         const width = Math.max(Math.abs(value) / peak * 100, value === 0 ? 0 : 2);
-        const weekday = new Date(`${row.date}T00:00:00Z`).getUTCDay();
         return (
           <div key={String(row.date)} className="grid grid-cols-[4.5rem_minmax(0,1fr)_auto] items-center gap-3 text-sm">
-            <span className="text-slate-600">{new Date(`${row.date}T00:00:00`).toLocaleDateString("en-GB", { weekday: "short", day: "2-digit" })}</span>
-            <div className="h-5 overflow-hidden rounded bg-slate-100" aria-hidden="true">
-              <AnimatedBar width={width} color={SALES_DAY_COLORS[weekday]} index={index} />
+            <span className="text-ink-muted">{new Date(`${row.date}T00:00:00`).toLocaleDateString("en-GB", { weekday: "short", day: "2-digit" })}</span>
+            <div className="h-5 overflow-hidden rounded bg-neutral-soft" aria-hidden="true">
+              <AnimatedBar width={width} color="" index={index} barColor={chartBarColor(index)} />
             </div>
-            <span className="text-right font-semibold tabular-nums">{formatTZS(value)}</span>
+            <span className={`text-right font-semibold tabular-nums ${value < 0 ? "text-danger" : ""}`}>{formatTZS(value)}</span>
           </div>
         );
       })}
@@ -114,7 +85,7 @@ function ProfitByProduct({ report }: { report: ReturnType<typeof useLoad<Report>
         <Alert kind="warning">Profit is unavailable for {unknownCostCount} product(s) because cost data is incomplete; those products are not included below.</Alert>
       )}
       {known.length === 0 ? (
-        <p className="text-slate-600">No sales with complete cost data for this period.</p>
+        <p className="text-ink-muted">No sales with complete cost data for this period.</p>
       ) : (
         <div className="space-y-3" aria-label="Gross profit by product, known costs only">
           {visible.map((row, index) => {
@@ -123,9 +94,9 @@ function ProfitByProduct({ report }: { report: ReturnType<typeof useLoad<Report>
             return (
               <div key={String(row.code)} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 text-sm">
                 <span className="truncate font-medium" title={String(row.product ?? "")}>{String(row.product ?? row.code ?? "Product")}</span>
-                <span className="text-right font-semibold tabular-nums">{formatTZS(value)}</span>
-                <div className="col-span-2 h-3 overflow-hidden rounded bg-slate-100" aria-hidden="true">
-                  <AnimatedBar width={width} color={productColor(String(row.code ?? row.product ?? ""))} index={index} />
+                <span className={`text-right font-semibold tabular-nums ${value < 0 ? "text-danger" : ""}`}>{formatTZS(value)}{value < 0 && " (loss)"}</span>
+                <div className="col-span-2 h-3 overflow-hidden rounded bg-neutral-soft" aria-hidden="true">
+                  <AnimatedBar width={width} color="" index={index} barColor={chartBarColor(index)} />
                 </div>
               </div>
             );
@@ -151,14 +122,14 @@ export function DashboardInsights({ today }: { today: string }) {
       <div className="card space-y-4">
         <div>
           <h2 className="text-xl font-bold">Net sales trend</h2>
-          <p className="text-sm text-slate-600">Last seven days ending {formatDate(today)}</p>
+          <p className="text-sm text-ink-muted">Last seven days ending {formatDate(today)}</p>
         </div>
         <SalesTrend report={sales} />
       </div>
       <div className="card space-y-4">
         <div>
           <h2 className="text-xl font-bold">Gross profit by product</h2>
-          <p className="text-sm text-slate-600">Month to date, highest first, products with recorded costs only</p>
+          <p className="text-sm text-ink-muted">Month to date, highest first, products with recorded costs only</p>
         </div>
         <ProfitByProduct report={profit} />
       </div>

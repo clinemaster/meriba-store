@@ -49,14 +49,14 @@ class DailySheetView(APIView):
         except ValueError:
             raise BusinessRuleError("Choose a valid date.", code="bad_date", status_code=400)
         office = request.user.is_back_office
-        if not office and (day != today or request.query_params.get("download")):
+        if not office and day != today:
             raise BusinessRuleError("You can open today's sheet only.", code="not_allowed", status_code=403)
         data = sheet.sheet_for(day)
+        columns = COLUMNS if office else [column for column in COLUMNS if column[0] not in OFFICE_ONLY]
         if not office:
             data["lines"] = [{k: v for k, v in line.items() if k not in OFFICE_ONLY} for line in data["lines"]]
             data["totals"] = {k: v for k, v in data["totals"].items() if k not in OFFICE_ONLY}
             data["previous_date"] = data["next_date"] = None
-            return Response({**_plain(data), "columns": [{"key": key, "label": label} for key, label in COLUMNS if key not in OFFICE_ONLY]})
 
         if request.query_params.get("download") == "csv":
             response = HttpResponse(content_type="text/csv; charset=utf-8")
@@ -64,16 +64,22 @@ class DailySheetView(APIView):
             response.write("﻿")
             writer = SafeCSVWriter(response)
             writer.writerow(["MERIBA STORE", str(day), data["note"]])
-            writer.writerow([label for _, label in COLUMNS])
+            writer.writerow([label for _, label in columns])
             for line in data["lines"]:
-                writer.writerow(["" if line[key] is None else _plain(line[key]) for key, _ in COLUMNS])
-            writer.writerow(["", "TOTAL", "", _plain(data["totals"]["purchases"]), _plain(data["totals"]["sales"]), "", "", "",
-                             _plain(data["totals"]["total_sales"]), _plain(data["totals"]["profit"]), _plain(data["totals"]["stock"]),
-                             _plain(data["totals"]["total_purchases"])])
+                writer.writerow(["" if line[key] is None else _plain(line[key]) for key, _ in columns])
+            totals = {
+                "number": "", "details": "TOTAL", "opening": "", "purchases": data["totals"]["purchases"],
+                "sales": data["totals"]["sales"], "closing_stock": "", "purchase_price": "", "sales_price": "",
+                "total_sales": data["totals"]["total_sales"], "profit": data["totals"].get("profit"),
+                "stock": data["totals"]["stock"], "total_purchases": data["totals"].get("total_purchases"),
+            }
+            writer.writerow(["" if totals[key] is None else _plain(totals[key]) for key, _ in columns])
             audit(request.user, "report.exported", summary=f"Exported the Daily Sheet for {day}")
             return response
 
-        return Response({**_plain(data), "columns": [{"key": key, "label": label} for key, label in COLUMNS],
+        if not office:
+            return Response({**_plain(data), "columns": [{"key": key, "label": label} for key, label in columns]})
+        return Response({**_plain(data), "columns": [{"key": key, "label": label} for key, label in columns],
                          "stock_value": _plain(sheet.stock_value(day))})
 
 

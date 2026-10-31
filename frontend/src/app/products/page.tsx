@@ -4,8 +4,9 @@ import { useEffect, useState } from "react";
 
 import { Alert, ConfirmToast, Field, Modal, PageTitle, Spinner, StatusBadge, StockBadge, useConfirm } from "@/components/ui";
 import { ColumnPicker } from "@/components/ColumnPicker";
+import { ActionButton, DataTable, ExportLinks, Pagination, TableToolbar } from "@/components/DataTable";
 import { useBackState } from "@/lib/backNav";
-import type { ColumnDef } from "@/lib/columns";
+import { formatAmount as plain, type TableColumn } from "@/lib/table";
 import { useColumnVisibility } from "@/lib/useColumnVisibility";
 import { api, ApiError, errorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -18,27 +19,34 @@ const UNITS = ["Bottle", "Crate", "Carton", "Box", "Pack"];
 const EMPTY = { name: "", base_unit: "Bottle", volume_ml: "", bottles_per_unit: "", selling_price: "", cost_price: "", reorder_point: "0", critical_point: "0", is_active: true };
 type Form = typeof EMPTY;
 
-/** S/No and the nine columns, in the agreed order (the Sales quantity column was removed at the owner's request, 13 Oct 2026). `key` is what the server sorts by. */
-const COLUMNS: (ColumnDef & { numeric?: boolean; help: string })[] = [
-  { key: "serial_number", label: "S/No", help: "The product's line number, as on the Excel sheet" },
-  { key: "name", label: "Product", essential: true, help: "Name of the product" },
-  { key: "sold_by", label: "Unit", help: "The unit this product is counted and sold in" },
-  { key: "volume_ml", label: "Volume (ml)", numeric: true, help: "Volume of one bottle, in millilitres" },
-  { key: "closing_stock", label: "Closing Stock", numeric: true, help: "Opening stock + stock in − sales − breakages and other stock out" },
-  { key: "purchase_price", label: "Purchase Price", numeric: true, help: "What the shop pays for one unit now, as in the Excel sheet" },
-  { key: "selling_price", label: "Selling Price", numeric: true, help: "Current approved selling price of one unit" },
-  { key: "total_sales", label: "Total Sales", numeric: true, help: "Value of completed sales in the period, less refunds. Worked out from the sales themselves" },
-  { key: "profit", label: "Profit", numeric: true, help: "Gross profit: Total Sales less the cost of the goods sold. Expenses are not taken off here" },
-  { key: "stock", label: "Stock on Hand", numeric: true, help: "Physical stock right now, from the stock ledger, with its level: healthy, low, critical or out of stock" },
+/** S/No and the nine columns, in the agreed order (the Sales quantity column was removed at the owner's request, 13 Oct 2026).
+ *  Every column is sorted by the server; `key` is what it sorts by. Money is the number only, with no "TZS" on every cell (owner's request, 13 Oct 2026). */
+const COLUMNS: TableColumn<ProductRow>[] = [
+  { key: "serial_number", label: "S/No", sortable: true, help: "The product's line number, as on the Excel sheet" },
+  { key: "name", label: "Product", essential: true, sortable: true, help: "Name of the product",
+    render: (r) => <><span className="font-semibold">{r.name}</span>{!r.is_active && <span className="block text-sm">Switched off</span>}</> },
+  { key: "sold_by", label: "Unit", sortable: true, help: "The unit this product is counted and sold in",
+    render: (r) => <>{r.sold_by}{r.sold_by !== "Bottle" && r.bottles_per_unit ? <span className="block text-sm text-slate-600">{r.bottles_per_unit} bottles</span> : null}</> },
+  { key: "volume_ml", label: "Volume (ml)", type: "number", sortable: true, help: "Volume of one bottle, in millilitres",
+    format: (v) => (v ? `${(v as number).toLocaleString()} ml` : "—") },
+  { key: "closing_stock", label: "Closing Stock", type: "quantity", sortable: true, help: "Opening stock + stock in − sales − breakages and other stock out" },
+  { key: "purchase_price", label: "Purchase Price", type: "amount", sortable: true, help: "What the shop pays for one unit now, as in the Excel sheet",
+    render: (r) => r.purchase_price === null
+      ? <span className="text-slate-600" title="No purchase price has been entered for this product.">Not entered</span>
+      : <>{plain(r.purchase_price)}{r.purchase_price_provisional && <span className="block text-sm text-amber-800">provisional</span>}</> },
+  { key: "selling_price", label: "Selling Price", type: "amount", sortable: true, help: "Current approved selling price of one unit",
+    render: (r) => (Number(r.selling_price) > 0 ? plain(r.selling_price) : <span className="font-semibold text-red-800">⚠ No price</span>) },
+  { key: "total_sales", label: "Total Sales", type: "amount", sortable: true, help: "Value of completed sales in the period, less refunds. Worked out from the sales themselves" },
+  { key: "profit", label: "Profit", type: "amount", sortable: true, className: "font-semibold", help: "Gross profit: Total Sales less the cost of the goods sold. Expenses are not taken off here",
+    render: (r) => <ProfitCell row={r} bare /> },
+  { key: "stock", label: "Stock on Hand", type: "quantity", sortable: true, className: "font-semibold", help: "Physical stock right now, from the stock ledger, with its level: healthy, low, critical or out of stock",
+    render: (r) => <StockBadge status={r.stock_status} quantity={r.stock} /> },
 ];
 
 function todayText(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
-
-/** Money in the table itself: the number only, with no "TZS" on every cell (owner's request, 13 Oct 2026). */
-const plain = (value: string | number | null | undefined) => formatTZS(value).replace("TZS ", "");
 
 function ProfitCell({ row, bare = false }: { row: Pick<ProductRow, "profit" | "profit_status">; bare?: boolean }) {
   if (row.profit === null) {
@@ -243,8 +251,8 @@ export default function ProductsPage() {
     return () => clearTimeout(timer);
   }, [search]);
 
-  function sortBy(key: string) {
-    setOrdering((current) => (current === key ? `-${key}` : key));
+  function sortBy(next: string) {
+    setOrdering(next);
     setPage(1);
   }
 
@@ -352,102 +360,37 @@ export default function ProductsPage() {
       {problem && !editing && <div className="mb-3"><Alert kind="error">{problem}</Alert></div>}
 
       <div className="card">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-slate-700" aria-live="polite">
-            {data ? <>Stock and sales for <strong>{periodText}</strong> · {data.count} product{data.count === 1 ? "" : "s"}</> : " "}
-          </p>
+        <TableToolbar summary={<span aria-live="polite">{data ? <>Stock and sales for <strong>{periodText}</strong> · {data.count} product{data.count === 1 ? "" : "s"}</> : " "}</span>}>
           {data && data.count > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
+            <>
               <ColumnPicker visibility={cols} />
-              <a className="btn-secondary" href={`/api/v1/products/table/?${params}&download=csv`}>Download for Excel (CSV)</a>
-            </div>
+              <ExportLinks links={[{ label: "Download for Excel (CSV)", href: `/api/v1/products/table/?${params}&download=csv` }]} />
+            </>
           )}
-        </div>
-        <div className="overflow-x-auto">
-          {list.loading && !data ? <Spinner /> : list.error ? <Alert kind="error">{list.error}</Alert> : rows.length === 0 ? (
-            <p className="p-4 text-slate-600">{query || soldBy || show || stockLevel ? "No product matches your search and filters." : "No products yet. Press “Add Product” to create the first one."}</p>
-          ) : (
-            <table className="table min-w-[960px]">
-              <thead>
-                <tr>
-                  {COLUMNS.filter((c) => cols.show(c.key)).map((c) => {
-                    const active = ordering === c.key || ordering === `-${c.key}`;
-                    return (
-                      <th key={c.key} className={c.numeric ? "num" : ""} aria-sort={!active ? "none" : ordering.startsWith("-") ? "descending" : "ascending"}>
-                        <button type="button" title={`${c.help}. Press to sort.`} className="font-semibold underline-offset-2 hover:underline" onClick={() => sortBy(c.key)}>
-                          {c.label}{active ? (ordering.startsWith("-") ? " ▼" : " ▲") : ""}
-                        </button>
-                      </th>
-                    );
-                  })}
-                  <th><span className="sr-only">Actions</span></th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => {
-                  const cell: Record<string, React.ReactNode> = {
-                    serial_number: <td key="serial_number">{r.serial_number ?? ""}</td>,
-                    name: <td key="name"><span className="font-semibold">{r.name}</span>{!r.is_active && <span className="block text-sm">Switched off</span>}</td>,
-                    sold_by: <td key="sold_by">{r.sold_by}{r.sold_by !== "Bottle" && r.bottles_per_unit ? <span className="block text-sm text-slate-600">{r.bottles_per_unit} bottles</span> : null}</td>,
-                    volume_ml: <td key="volume_ml" className="num">{r.volume_ml ? `${r.volume_ml.toLocaleString()} ml` : "—"}</td>,
-                    closing_stock: <td key="closing_stock" className="num">{formatQty(r.closing_stock)}</td>,
-                    purchase_price: <td key="purchase_price" className="num">{r.purchase_price === null ? <span className="text-slate-600" title="No purchase price has been entered for this product.">Not entered</span> : <>{plain(r.purchase_price)}{r.purchase_price_provisional && <span className="block text-sm text-amber-800">provisional</span>}</>}</td>,
-                    selling_price: <td key="selling_price" className="num">{Number(r.selling_price) > 0 ? plain(r.selling_price) : <span className="font-semibold text-red-800">⚠ No price</span>}</td>,
-                    total_sales: <td key="total_sales" className="num">{plain(r.total_sales)}</td>,
-                    profit: <td key="profit" className="num font-semibold"><ProfitCell row={r} bare /></td>,
-                    stock: <td key="stock" className="num font-semibold"><StockBadge status={r.stock_status} quantity={r.stock} /></td>,
-                  };
-                  return (
-                  <tr key={r.id} className={r.is_active ? "" : "text-slate-500"}>
-                    {COLUMNS.filter((c) => cols.show(c.key)).map((c) => cell[c.key])}
-                    <td className="text-right">
-                      {/* Stacked beside the sidebar so the table fits; side by side on a wide screen. */}
-                      <div className="flex flex-col items-stretch gap-1 2xl:flex-row 2xl:justify-end">
-                        <button className="btn-secondary min-h-[2.25rem] whitespace-nowrap" onClick={() => setDetailsFor(r.id)}>Details</button>
-                        <button className="btn-secondary min-h-[2.25rem] whitespace-nowrap" onClick={() => open(r.id)}>Edit</button>
-                      </div>
-                    </td>
-                  </tr>
-                  );
-                })}
-              </tbody>
-              {data && (
-                <tfoot>
-                  {(() => {
-                    const shown = COLUMNS.filter((c) => cols.show(c.key));
-                    const isTotal = (k: string) => k === "total_sales" || k === "profit";
-                    const lead = shown.findIndex((c) => isTotal(c.key));
-                    const label = `Total for all ${data.count} product${data.count === 1 ? "" : "s"} shown by these filters`;
-                    if (lead === -1) return <tr className="font-bold"><td colSpan={shown.length + 1}>{label}</td></tr>;
-                    return (
-                      <>
-                        {lead === 0 && <tr className="font-bold"><td colSpan={shown.length + 1}>{label}</td></tr>}
-                        <tr className="font-bold">
-                          {lead > 0 && <td colSpan={lead}>{label}</td>}
-                          {shown.slice(lead).map((c) => <td key={c.key} className="num">{isTotal(c.key) ? plain(data.totals[c.key as "total_sales" | "profit"]) : ""}</td>)}
-                          <td />
-                        </tr>
-                      </>
-                    );
-                  })()}
-                </tfoot>
-              )}
-            </table>
+        </TableToolbar>
+        <DataTable label="Products" columns={COLUMNS} visibility={cols} rows={rows} rowKey={(r) => r.id}
+          loading={list.loading && !data} error={list.error}
+          empty={query || soldBy || show || stockLevel ? "No product matches your search and filters." : "No products yet. Press “Add Product” to create the first one."}
+          sort={{ ordering, onSort: sortBy }}
+          rowClassName={(r) => (r.is_active ? "" : "text-slate-500")}
+          actions={(r) => (
+            <>
+              <ActionButton aria-label={`Details of ${r.name}`} onClick={() => setDetailsFor(r.id)}>Details</ActionButton>
+              <ActionButton aria-label={`Edit ${r.name}`} onClick={() => open(r.id)}>Edit</ActionButton>
+            </>
           )}
-        </div>
+          totals={data ? {
+            label: `Total for all ${data.count} product${data.count === 1 ? "" : "s"} shown by these filters`,
+            values: { total_sales: plain(data.totals.total_sales), profit: plain(data.totals.profit) },
+          } : undefined}
+        />
         {data && (data.totals.profit_unavailable_for > 0 || data.totals.profit_provisional_for > 0) && (
           <div className="mt-3"><Alert kind="warning">
             {data.totals.profit_unavailable_for > 0 && <>Profit is not available for {data.totals.profit_unavailable_for} product(s) because some sales have no reliable purchase cost; they are left out of the profit total. </>}
             {data.totals.profit_provisional_for > 0 && <>Profit is provisional for {data.totals.profit_provisional_for} product(s) because a delivery was recorded without a cost.</>}
           </Alert></div>
         )}
-        {data && data.pages > 1 && (
-          <div className="mt-3 flex items-center justify-end gap-3">
-            <button className="btn-secondary min-h-[2.5rem]" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</button>
-            <span>Page {data.page} of {data.pages}</span>
-            <button className="btn-secondary min-h-[2.5rem]" disabled={page >= data.pages} onClick={() => setPage(page + 1)}>Next</button>
-          </div>
-        )}
+        {data && <Pagination page={data.page} pages={data.pages} onPage={setPage} />}
         <details className="mt-4 text-sm text-slate-700">
           <summary className="cursor-pointer font-semibold">What do the columns mean?</summary>
           <ul className="ml-5 mt-2 list-disc space-y-1">{COLUMNS.slice(4).map((c) => <li key={c.key}><strong>{c.label}:</strong> {c.help}.</li>)}</ul>
